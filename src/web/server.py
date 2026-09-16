@@ -1705,7 +1705,11 @@ class _UIHandler(SimpleHTTPRequestHandler):
                 from src.game.engine import exp_progress
                 from src.game.store import GameStore
                 store = GameStore(_resolve_db_path())
-                ranking = store.list_ranking(chat_id, 20) if chat_id else []
+                # 选了具体群 → 群内榜；「全部群聊」(chat_id 为空) → 跨群全服榜。
+                # 直接对空 chat_id 调 list_ranking 会返回空列表，而上方统计是
+                # 全量的，两者会在同一屏里自相矛盾。
+                ranking = (store.list_ranking(chat_id, 20) if chat_id
+                           else store.list_global_ranking(20))
                 events = store.list_events(chat_id, 30)
                 overview = store.get_overview(chat_id)
                 self.send_json({
@@ -1723,6 +1727,7 @@ class _UIHandler(SimpleHTTPRequestHandler):
                     },
                     "ranking": [
                         {
+                            "chat_id": c.chat_id,
                             "user_id": c.user_id,
                             "user_name": c.user_name,
                             "realm_index": c.realm_index,

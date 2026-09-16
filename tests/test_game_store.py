@@ -240,6 +240,50 @@ class TestAdminOps(GameStoreTestCase):
         self.assertEqual(c.fail_streak, 0)
 
 
+class TestGlobalRanking(GameStoreTestCase):
+    """跨群全服榜 —— Web 面板「全部群聊」视图依赖它。
+
+    回归背景：面板默认就是「全部群聊」，早先直接对空 chat_id 调
+    list_ranking 会返回空列表，于是同一屏里上方统计说「在册修士 7」、
+    下方排行榜说「还没有任何修士」。
+    """
+
+    def _mk(self, chat, uid, name, realm, total):
+        c = self.store.get_or_create(chat, uid, name)
+        c.realm_index = realm
+        c.total_exp = total
+        self.store.save_character(c)
+
+    def test_empty_when_no_characters(self):
+        self.assertEqual(self.store.list_global_ranking(), [])
+
+    def test_spans_multiple_chats(self):
+        self._mk("c1", "u1", "甲", 5, 100)
+        self._mk("c2", "u2", "乙", 9, 50)
+        self._mk("c3", "u3", "丙", 2, 900)
+        names = [c.user_name for c in self.store.list_global_ranking()]
+        self.assertEqual(names, ["乙", "甲", "丙"])
+
+    def test_ordering_matches_per_chat_ranking(self):
+        self._mk("c1", "u1", "甲", 5, 100)
+        self._mk("c1", "u2", "乙", 9, 50)
+        self._mk("c1", "u3", "丙", 5, 900)
+        global_order = [c.user_name for c in self.store.list_global_ranking()]
+        chat_order = [c.user_name for c in self.store.list_ranking("c1")]
+        self.assertEqual(global_order, chat_order)
+
+    def test_respects_limit(self):
+        for i in range(15):
+            self._mk(f"c{i}", f"u{i}", f"修士{i}", i, i)
+        self.assertEqual(len(self.store.list_global_ranking(limit=5)), 5)
+
+    def test_differs_from_empty_chat_id_ranking(self):
+        """正是这个差异造成了统计与排行榜自相矛盾。"""
+        self._mk("c1", "u1", "甲", 5, 100)
+        self.assertEqual(self.store.list_ranking(""), [])
+        self.assertEqual(len(self.store.list_global_ranking()), 1)
+
+
 class TestEvents(GameStoreTestCase):
 
     def test_log_and_list(self):

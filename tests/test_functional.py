@@ -23,6 +23,23 @@ SERVER_HOST = "127.0.0.1"
 SERVER_PORT = None  # discovered at fixture time
 BASE_URL = None
 
+#: 前端把 API 地址硬编码成了 http://127.0.0.1:7327（见 ui/src/App.jsx 及各处组件），
+#: 因此测试服务器**必须**监听这个端口，SPA 才可能渲染出内容。用随机端口的话
+#: 前端永远停在「正在加载...」——所有断言页面内容的测试都只会看到加载页。
+APP_PORT = 7327
+
+#: 端口被占用时（多半是真机上的 webot 正在跑）浏览器测试无法进行，需要跳过。
+BROWSER_TESTS_USABLE = False
+
+
+def _port_is_free(port):
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        try:
+            s.bind((SERVER_HOST, port))
+            return True
+        except OSError:
+            return False
+
 
 def _find_free_port():
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
@@ -89,13 +106,19 @@ def _api_post(path, body_dict=None, raw_body=None, timeout=5):
 @pytest.fixture(scope="module")
 def server():
     """Module-level fixture: start the web server once for all tests."""
-    global SERVER_PORT, BASE_URL
+    global SERVER_PORT, BASE_URL, BROWSER_TESTS_USABLE
 
     ui_dist = Path(__file__).resolve().parent.parent / "ui" / "dist" / "index.html"
     if not ui_dist.exists():
         pytest.skip("UI not built. Run: cd ui && npm run build")
 
-    SERVER_PORT = _find_free_port()
+    # 优先占用前端硬编码的端口，这样 SPA 才连得上后端。
+    if _port_is_free(APP_PORT):
+        SERVER_PORT = APP_PORT
+        BROWSER_TESTS_USABLE = True
+    else:
+        SERVER_PORT = _find_free_port()
+        BROWSER_TESTS_USABLE = False
     BASE_URL = f"http://{SERVER_HOST}:{SERVER_PORT}"
 
     project_root = Path(__file__).resolve().parent.parent
@@ -276,12 +299,42 @@ except ImportError:
     PLAYWRIGHT_AVAILABLE = False
 
 
+def _launch_browser(p):
+    """Launch a Chromium-family browser for the functional tests.
+
+    Prefers the Playwright-bundled Chromium.  Falls back to the system
+    Microsoft Edge / Chrome via ``channel`` when the bundled build is not
+    installed — ``cdn.playwright.dev`` is unreachable on some networks
+    (its download times out after 30s), while Windows always ships Edge.
+    """
+    last_error = None
+    try:
+        return p.chromium.launch(headless=True)
+    except Exception as exc:  # noqa: BLE001 - fall through to the channels
+        last_error = exc
+    for channel in ("msedge", "chrome"):
+        try:
+            return p.chromium.launch(headless=True, channel=channel)
+        except Exception as exc:  # noqa: BLE001
+            last_error = exc
+    raise RuntimeError(
+        "No Chromium-family browser available. Either run "
+        "`python -m playwright install chromium`, or install Edge/Chrome.\n"
+        f"Last error: {last_error}"
+    )
+
+
 @pytest.fixture(scope="module")
 def browser():
     if not PLAYWRIGHT_AVAILABLE:
         pytest.skip("Playwright not installed. Run: pip install playwright")
+    if not BROWSER_TESTS_USABLE:
+        pytest.skip(
+            f"端口 {APP_PORT} 已被占用（真机上 webot 正在运行？）。"
+            f"前端把 API 地址硬编码成 {APP_PORT}，换端口 SPA 会一直停在加载页。"
+        )
     with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True)
+        browser = _launch_browser(p)
         yield browser
         browser.close()
 

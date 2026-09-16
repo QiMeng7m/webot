@@ -276,6 +276,24 @@ class GameStore:
             ).fetchall()
         return [_row_to_character(r) for r in rows]
 
+    def list_global_ranking(self, limit: int = 20) -> list[GameCharacter]:
+        """跨群全服榜（Web 面板选「全部群聊」时用）。
+
+        注意与 :meth:`list_ranking` 的区别：那个必须带 ``chat_id``，传空串会
+        返回空列表——面板默认就是「全部群聊」，若直接复用会导致上方统计显示
+        有 N 名修士、下方排行榜却说「还没有任何修士」。
+        """
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT * FROM game_characters
+                 ORDER BY realm_index DESC, total_exp DESC, updated_at ASC
+                 LIMIT ?
+                """,
+                (limit,),
+            ).fetchall()
+        return [_row_to_character(r) for r in rows]
+
     def list_characters(self, chat_id: str = "", search: str = "",
                         limit: int = 200, offset: int = 0) -> list[GameCharacter]:
         """角色列表（Web UI 管理用，可按群与昵称过滤）。"""

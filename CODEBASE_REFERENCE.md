@@ -74,6 +74,7 @@ grep "文件名" CODEBASE_REFERENCE.md
    - [功能J: 聊天记忆](#功能j-聊天记忆)
    - [功能K: macOS适配](#功能k-macos适配)
    - [功能L: 修仙玩法](#功能l-修仙玩法)
+   - [功能M: 新人引导与功能发现](#功能m-新人引导与功能发现)
 5. [配置文件和环境变量](#5-配置文件和环境变量)
 
 ---
@@ -610,6 +611,18 @@ python -m src.wechat.native_dlls
 | `reset_lots_cache()` | 清除抽签缓存 | 无 | `None` |
 | `draw_lots(requester_name)` | 抽签 | `requester_name: str` | `str` |
 
+### 2.25b `src/help.py`
+
+> 群内功能帮助，**从 `BotConfig` 动态生成**。历史教训：早先帮助文案硬编码在 `admin.py` 里，宣传的触发词是「说了什么」而 `TRIGGER_KEYWORDS` 实际配的是「说了啥」——照着帮助用的群友拿到的是 AI 闲聊；同时待办、修仙玩法开了也从不出现。
+
+| 函数 | 描述 | 参数 | 返回值 |
+|---|---|---|---|
+| `is_help_request(text)` | 判断是否在问「你能做什么」 | `text: str` | `bool` |
+| `build_help_text(config, requester_name)` | 生成完整功能清单（只列已开启的功能） | `config, requester_name: str` | `str` |
+| `build_guide_text(config, requester_name)` | 生成短导览（空 @机器人 时回复） | `config, requester_name: str` | `str` |
+| `HELP_TRIGGERS` | 整句匹配的帮助关键词集合（常量） | — | `frozenset[str]` |
+| `_HELP_CONTAINS` | 按包含匹配的口语化问法（模块级私有常量） | — | `tuple[str,...]` |
+
 ### 2.26 `src/game/` (修仙玩法)
 
 > 群聊修仙小游戏。五文件分层：`realms`(数据) → `engine`(纯逻辑) → `store`(持久化) → `flavor`(文案) → `handler`(命令)。
@@ -658,6 +671,7 @@ python -m src.wechat.native_dlls
 | `get_or_create(chat_id, user_id, user_name)` | 读或建角色(顺带刷新显示名) | 见签名 | `GameCharacter` |
 | `save_character(char)` | 整体写回角色卡(UPSERT) | `char: GameCharacter` | `None` |
 | `list_ranking(chat_id, limit)` | 群内修为榜(境界→累计修为) | `chat_id: str, limit: int=20` | `list[GameCharacter]` |
+| `list_global_ranking(limit)` | 跨群全服榜(Web 面板「全部群聊」用) | `limit: int=20` | `list[GameCharacter]` |
 | `list_characters(chat_id, search, limit, offset)` | 角色列表(UI 管理用) | 见签名 | `list[GameCharacter]` |
 | `get_overview(chat_id)` | 汇总统计(人数/最高境界/均值/灵石) | `chat_id: str=""` | `dict` |
 | `reset_character(chat_id, user_id)` | 打回炼气初期(管理员) | `chat_id, user_id: str` | `bool` |
@@ -1014,6 +1028,7 @@ AbstractSummarizer (base.py)
          │      │     └─ AbstractSummarizer.chat()
          │      │
          │      ├─ admin command → AdminCommandHandler.handle()
+         │      ├─ 帮助问法 → is_help_request() → build_help_text()   [src/help.py]
          │      ├─ todo command → TodoHandler.handle()
          │      ├─ feishu export → FeishuExportService.export_recent_chat()
          │      ├─ fun (抽签) → draw_lots()
@@ -1023,6 +1038,10 @@ AbstractSummarizer (base.py)
          │            ├─ _cmd_alchemy() / _cmd_take_pill()
          │            ├─ _cmd_duel() → engine.duel_allowed()
          │            └─ _claim_encounter() → GameStore.claim_encounter() (原子)
+         │
+         └─→ [空 @mention 路径]
+                ├─ StickyMentionTracker.register()   (注册粘性监听)
+                └─ build_guide_text() → 短功能导览   [src/help.py]
          │
          └─→ [Proactive 路径]
                 │
@@ -1876,6 +1895,48 @@ CREATE TABLE IF NOT EXISTS game_group_state (
 - **天降机缘**：每群每 `game_encounter_interval_min` 分钟最多 1 次，懒触发（收到消息时检查），要求群近 10 分钟 ≥5 条消息。窗口 5 分钟，靠 `GameStore.claim_encounter()` 的 `BEGIN IMMEDIATE` 事务保证先到先得。
 - **AI 文案**：`FlavorGenerator` 通过 `summarizer._call_chat_api()` 调 AI，`ThreadPoolExecutor` + 3 秒超时；超时/异常一律降级到 `realms.TEMPLATES` 模板池，绝不阻塞群聊。
 - **`GameStore._connect()` 返回 `contextlib.closing`**：`sqlite3.connect()` 作上下文管理器只 commit 不 close，在 Windows 上会一直锁住 `-wal`/`-shm` 文件。所有写操作因此都显式 `commit()`。
+
+---
+
+### 功能M: 新人引导与功能发现
+
+新人进群后如何知道机器人能做什么。
+
+#### 涉及文件
+
+| 文件 | 路径 | 角色 |
+|---|---|---|
+| `help.py` | `src/help.py` | 从 `BotConfig` 动态生成帮助清单与短导览 |
+| `router.py` | `src/router.py` | 空 @mention → 导览；帮助类问法 → 帮助清单 |
+
+#### 调用链
+
+```
+① 空 @机器人（新人最可能的第一个动作）
+MessageRouter.handle(msg) → [is_at 且 clean_content 为空]
+  ├── StickyMentionTracker.register()   注册粘性监听（后续无 @ 消息仍能接住）
+  └── build_guide_text(config, name)    一行导览 + 已开启功能的示例命令
+
+② 帮助类问法
+MessageRouter.handle(msg) → [is_at]
+  └── is_help_request(clean_content)
+        整句命中 HELP_TRIGGERS，或包含 _HELP_CONTAINS 中任一口语化问法
+        └── build_help_text(config, name)
+              只列出 config 里**已开启**的功能，并回显真实的 TRIGGER_KEYWORDS
+```
+
+#### 触发词
+
+| 类型 | 内容 |
+|---|---|
+| 整句匹配 `HELP_TRIGGERS` | 帮助 / help / 命令 / ? / ？ / 菜单 / 你能做什么 / 有什么功能 / 会什么 / 能干什么 / 怎么用 / 使用说明 |
+| 包含匹配 `_HELP_CONTAINS` | 有什么功能 / 有啥功能 / 有什么作用 / 能做什么 / 会什么 / 会做什么 / 能干什么 / 会干什么 / 能干嘛 / 会干嘛 / 干啥的 / 怎么用 / 使用说明 / 使用帮助 |
+
+#### 设计约束
+
+- **帮助文案不得硬编码在 `admin.py`**。早先的版本把清单写死在 `AdminCommandHandler.handle()` 里，导致：宣传的触发词「说了什么」不在 `TRIGGER_KEYWORDS` 中（真实是「说了啥」），照着用的群友拿到 AI 闲聊；且待办 / 修仙玩法开启后从不出现在帮助里。现在一律由 `build_help_text()` 读配置生成。
+- **空 @机器人 必须有回应**。此前该路径只注册粘性监听并返回 `None`，机器人一个字都不回——新人第一次 @ 就撞上完全沉默。
+- **帮助匹配不能吃掉普通闲聊**。`is_help_request` 对「这条命令我执行过了」这类含关键词的长句返回 False（整句匹配优先）。
 
 ---
 

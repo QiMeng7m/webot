@@ -1,8 +1,12 @@
-"""Tests for the MessageRouter ↔ GameHandler integration.
+"""Router 集成测试 —— 修仙玩法接线 + 新人功能发现。
 
-Covers the wiring in src/router.py: passive accrual on every message, the
-command hook inside the @mention chain, and the passive_reply merge that
-lets a 机缘 announcement be delivered on both the @  and non-@ paths.
+覆盖 src/router.py 里的接线：
+  * 每条消息的被动修为累积
+  * @mention 命令链里的玩法钩子
+  * passive_reply 合并（机缘播报在 @ 与非-@ 两条路径都能发出）
+  * 空 @机器人 → 功能导览；「帮助」类问法 → 帮助清单
+
+（文件名里的 game 是历史遗留：这里的 fake 是通用的 Router 协作者替身。）
 """
 
 import os
@@ -271,6 +275,100 @@ class TestRouterGameIntegration(unittest.TestCase):
 
     def test_non_game_command_reaches_ai(self):
         """不是玩法命令时，玩法必须返回 None 让后面的处理器接手。"""
+        self.router.handle(_make_msg("今天午饭吃什么好呢", is_at=True))
+        self.assertEqual(self.summarizer.chat_calls, 1)
+
+
+class TestNewcomerDiscovery(unittest.TestCase):
+    """新人 @ 一下机器人时，能不能知道有什么功能。
+
+    回归背景：此前空 @机器人 走「粘性监听」分支，reply 保持 None，机器人
+    一个字都不回；而「?」「你能做什么」这类问法全部落到 AI 闲聊，拿到的是
+    模型即兴发挥而不是权威清单。
+    """
+
+    def setUp(self):
+        self._tmpdir = tempfile.TemporaryDirectory()
+        self.db_path = os.path.join(self._tmpdir.name, "test.db")
+        self.store = FakeMessageStore()
+        self.summarizer = FakeSummarizer()
+        self.config = _make_config(self.db_path)
+        self.router = self._make_router(self.config)
+
+    def tearDown(self):
+        self._tmpdir.cleanup()
+
+    def _make_router(self, config):
+        return MessageRouter(
+            store=self.store, detector=FakeDetector(),
+            summarizer=self.summarizer, admin_handler=FakeAdmin(),
+            nickname_service=FakeNicknames(), config=config,
+        )
+
+    # ── 空 @机器人 ───────────────────────────────────────────────
+
+    def test_bare_at_mention_is_not_silent(self):
+        reply = self.router.handle(_make_msg("", is_at=True))
+        self.assertIsNotNone(reply, "空 @机器人 不该一片沉默")
+        self.assertIn("帮助", reply)
+
+    def test_bare_at_mention_does_not_hit_ai(self):
+        self.router.handle(_make_msg("", is_at=True))
+        self.assertEqual(self.summarizer.chat_calls, 0)
+
+    def test_bare_at_mention_suggests_enabled_features(self):
+        self.config.todo_enabled = True
+        self.config.fun_enabled = True
+        reply = self.router.handle(_make_msg("", is_at=True))
+        self.assertIn("修炼", reply)      # game_enabled 由 _make_config 打开
+        self.assertIn("记一下", reply)
+        self.assertIn("抽签", reply)
+
+    def test_bare_at_mention_still_registers_sticky(self):
+        """导览不能挤掉粘性监听 —— 用户接着说话仍应被接住。"""
+        self.config.sticky_mention_enabled = True
+        router = self._make_router(self.config)
+        router.handle(_make_msg("", is_at=True))
+        self.assertIsNotNone(router._sticky)
+        # 下一条不带 @ 的消息应被粘性提到，从而拿到玩法回复
+        reply = router.handle(_make_msg("修炼"))
+        self.assertIsNotNone(reply)
+        self.assertIn("修为", reply)
+
+    # ── 帮助类问法 ───────────────────────────────────────────────
+
+    def test_help_words_route_to_help(self):
+        for text in ("帮助", "help", "命令", "?", "？", "菜单",
+                     "你能做什么", "有什么功能", "怎么用", "使用说明"):
+            reply = self.router.handle(_make_msg(text, is_at=True))
+            self.assertIsNotNone(reply, f"{text!r} 应得到帮助回复")
+            self.assertIn("能做什么", reply, f"{text!r} 没有走到帮助")
+
+    def test_colloquial_help_phrasing(self):
+        reply = self.router.handle(_make_msg("你有什么功能吗", is_at=True))
+        self.assertIsNotNone(reply)
+        self.assertIn("能做什么", reply)
+
+    def test_help_does_not_hit_ai(self):
+        self.router.handle(_make_msg("你能做什么", is_at=True))
+        self.assertEqual(self.summarizer.chat_calls, 0)
+
+    def test_help_lists_game_when_enabled(self):
+        self.config.game_enabled = True
+        reply = self.router.handle(_make_msg("帮助", is_at=True))
+        self.assertIn("修仙玩法", reply)
+        self.assertIn("修仙帮助", reply)
+
+    def test_help_omits_disabled_features(self):
+        self.config.game_enabled = False
+        self.config.fun_enabled = False
+        self.config.todo_enabled = False
+        reply = self.router.handle(_make_msg("帮助", is_at=True))
+        self.assertNotIn("修仙玩法", reply)
+        self.assertNotIn("抽签", reply)
+
+    def test_normal_chat_still_reaches_ai(self):
+        """不能因为放宽了帮助匹配，就把普通闲聊也吃掉。"""
         self.router.handle(_make_msg("今天午饭吃什么好呢", is_at=True))
         self.assertEqual(self.summarizer.chat_calls, 1)
 

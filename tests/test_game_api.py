@@ -10,7 +10,6 @@ Written with ``unittest`` so it runs under both ``pytest`` and
 import http.client
 import json
 import os
-import shutil
 import socket
 import tempfile
 import threading
@@ -21,8 +20,15 @@ from pathlib import Path
 SERVER_HOST = "127.0.0.1"
 SERVER_PORT = None
 _server_thread = None
-_env_backup = None
 _env_path = None
+_db_path = None
+
+#: 种进隔离库的修士，供「有数据」的分支断言
+SEED_CHAT = "seed_room@chatroom"
+SEED_USER = "wxid_seed"
+SEED_NAME = "测试修士"
+SEED_REALM_INDEX = 4          # 筑基中期
+SEED_STONES = 55
 
 
 def _find_free_port():
@@ -87,45 +93,52 @@ def _start_server(port):
 
 
 def setUpModule():
-    """Start one server for the whole module, with a throwaway .env."""
-    global SERVER_PORT, _server_thread, _env_backup, _env_path
+    """Start one server for the whole module, on a throwaway .env + database.
+
+    The server reads DB_PATH through ``find_env_file()``, so pointing
+    ``WEBOT_ENV_FILE`` at a temp env keeps these tests off the developer's
+    real ``data/messages.db`` — and lets us seed characters to exercise the
+    populated paths.
+    """
+    global SERVER_PORT, _server_thread, _env_path, _db_path
 
     ui_dist = Path(__file__).resolve().parent.parent / "ui" / "dist" / "index.html"
     if not ui_dist.exists():
         raise unittest.SkipTest("UI not built. Run: cd ui && npm run build")
 
-    from src.config import resolve_env_file
-    _env_path = resolve_env_file()
-    if _env_path.exists():
-        _env_backup = _env_path.read_text(encoding="utf-8")
-    else:
-        _env_path.parent.mkdir(parents=True, exist_ok=True)
-        _env_path.write_text(
-            "AI_BACKEND=deepseek\n"
-            "DEEPSEEK_API_KEY=\n"
-            "DEEPSEEK_MODEL=deepseek-v4-flash\n"
-            "WECHAT_GROUPS=*\n"
-            "ONBOARDING_DONE=true\n",
-            encoding="utf-8",
-        )
-        _env_backup = None
+    tmp = Path(tempfile.mkdtemp(prefix="webot_gameapi_"))
+    _db_path = tmp / "iso.db"
+    _env_path = tmp / ".env"
+    _env_path.write_text(
+        "AI_BACKEND=deepseek\n"
+        "DEEPSEEK_API_KEY=\n"
+        "DEEPSEEK_MODEL=deepseek-v4-flash\n"
+        "WECHAT_GROUPS=*\n"
+        "ONBOARDING_DONE=true\n"
+        f"DB_PATH={_db_path.as_posix()}\n",
+        encoding="utf-8",
+    )
+    os.environ["WEBOT_ENV_FILE"] = str(_env_path)
+
+    # 种一名修士，让「有数据」的分支也被覆盖到
+    from src.game.store import GameStore
+    store = GameStore(str(_db_path))
+    char = store.get_or_create(SEED_CHAT, SEED_USER, SEED_NAME)
+    char.realm_index = SEED_REALM_INDEX
+    char.exp = 30
+    char.total_exp = 700
+    char.spirit_stones = SEED_STONES
+    store.save_character(char)
+    store.log_event(SEED_CHAT, "breakthrough_success", SEED_USER, SEED_NAME,
+                    f"{SEED_NAME} 突破成功")
 
     SERVER_PORT = _find_free_port()
     _server_thread = _start_server(SERVER_PORT)
 
 
 def tearDownModule():
-    """Restore the developer's real .env — these tests must not clobber it."""
-    if _env_path is None:
-        return
-    try:
-        if _env_backup is None:
-            if _env_path.exists():
-                _env_path.unlink()
-        else:
-            _env_path.write_text(_env_backup, encoding="utf-8")
-    except OSError:
-        pass
+    """Drop the throwaway env; the developer's real .env was never touched."""
+    os.environ.pop("WEBOT_ENV_FILE", None)
 
 
 class TestGameOverviewApi(unittest.TestCase):
@@ -155,6 +168,35 @@ class TestGameOverviewApi(unittest.TestCase):
         )
         self.assertEqual(data["ranking"], [])
         self.assertEqual(data["overview"]["total"], 0)
+
+    def test_all_groups_returns_global_ranking(self):
+        """「全部群聊」(chat_id 为空) 必须给全服榜。
+
+        回归：早先这里直接对空 chat_id 调 list_ranking，返回空列表，于是
+        同一屏里上方统计有修士、下方排行榜却说「还没有任何修士」。
+        """
+        _, data = _api_get("/api/game/overview")
+        self.assertTrue(data["ok"], data)
+        self.assertEqual(data["overview"]["total"], 1)
+        self.assertEqual(len(data["ranking"]), 1,
+                         "统计说有修士，排行榜就不能是空的")
+        self.assertEqual(data["ranking"][0]["user_name"], SEED_NAME)
+
+    def test_ranking_rows_carry_chat_id(self):
+        """全服榜跨群展示，前端要靠 chat_id 标出每个人在哪个群。"""
+        _, data = _api_get("/api/game/overview")
+        self.assertIn("chat_id", data["ranking"][0])
+        self.assertEqual(data["ranking"][0]["chat_id"], SEED_CHAT)
+
+    def test_seeded_group_ranking(self):
+        from src.game import realms as R
+        _, data = _api_get(f"/api/game/overview?chat_id={SEED_CHAT.replace('@', '%40')}")
+        self.assertEqual(len(data["ranking"]), 1)
+        row = data["ranking"][0]
+        self.assertEqual(row["realm_label"], R.realm_label(SEED_REALM_INDEX))
+        self.assertGreater(row["exp_needed"], 0)
+        self.assertGreater(row["progress"], 0)
+        self.assertEqual(row["spirit_stones"], SEED_STONES)
 
 
 class TestGameCharactersApi(unittest.TestCase):

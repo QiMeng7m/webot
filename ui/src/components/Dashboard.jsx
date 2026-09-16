@@ -85,17 +85,30 @@ function MetricCard({ icon: Icon, label, value, sub, accent = 'green', chartData
   )
 }
 
-function LiveIndicator({ label, ok }) {
+function LiveIndicator({ label, ok, idle = false }) {
+  // 三态：idle（机器人没启动）/ ok / 异常。
+  // 未启动时把各项显示成灰色「未启动」而不是红色「异常」——开箱第一次打开
+  // 看到四行全红，会让人以为装坏了，其实只是还没点「启动机器人」。
+  const dotClass = idle
+    ? 'bg-slate-500 shadow-slate-500/20'
+    : ok
+      ? 'bg-brand-green shadow-brand-green/30'
+      : 'bg-[#d45656] shadow-[#d45656]/30'
+
+  const pillClass = idle
+    ? 'bg-bg-raised text-text-muted border-border-main'
+    : ok
+      ? 'bg-brand-green-light text-brand-green-hover border-brand-green/20 dark:bg-brand-green/10 dark:text-brand-green dark:border-brand-green/20'
+      : 'bg-[#d45656]/10 text-[#d45656] border-[#d45656]/20'
+
   return (
     <motion.div
       whileHover={{ x: 2 }}
       className="flex items-center gap-3 py-3.5 border-b border-border-main/40 last:border-0 transition-colors"
     >
       <div className="relative flex-shrink-0">
-        <div
-          className={`w-2.5 h-2.5 rounded-full transition-colors duration-500 shadow-sm ${ok ? 'bg-brand-green shadow-brand-green/30' : 'bg-[#d45656] shadow-[#d45656]/30'}`}
-        />
-        {ok && (
+        <div className={`w-2.5 h-2.5 rounded-full transition-colors duration-500 shadow-sm ${dotClass}`} />
+        {ok && !idle && (
           <motion.div
             animate={{ scale: [1, 2.2, 1], opacity: [0.4, 0, 0.4] }}
             transition={{ duration: 2, repeat: Infinity }}
@@ -105,13 +118,9 @@ function LiveIndicator({ label, ok }) {
       </div>
       <span className="text-sm text-text-main font-medium flex-1">{label}</span>
       <span
-        className={`text-[11px] font-semibold font-mono px-3.5 py-1 rounded-full border transition-all ${
-          ok
-            ? 'bg-brand-green-light text-brand-green-hover border-brand-green/20 dark:bg-brand-green/10 dark:text-brand-green dark:border-brand-green/20'
-            : 'bg-[#d45656]/10 text-[#d45656] border-[#d45656]/20'
-        }`}
+        className={`text-[11px] font-semibold font-mono px-3.5 py-1 rounded-full border transition-all ${pillClass}`}
       >
-        {ok ? '正常' : '异常'}
+        {idle ? '未启动' : (ok ? '正常' : '异常')}
       </span>
     </motion.div>
   )
@@ -278,10 +287,10 @@ export default function Dashboard({ status }) {
             </button>
           </div>
           <div className="divide-y divide-border-main/40">
-            <LiveIndicator label="数据库连接" ok={status.db_ok} />
-            <LiveIndicator label="微信后端" ok={!!status.wechat_backend} />
-            <LiveIndicator label="AI 后端" ok={!!status.ai_backend} />
-            <LiveIndicator label="机器人进程" ok={status.running} />
+            <LiveIndicator label="数据库连接" ok={status.db_ok} idle={!status.running} />
+            <LiveIndicator label="微信后端" ok={!!status.wechat_backend} idle={!status.running} />
+            <LiveIndicator label="AI 后端" ok={!!status.ai_backend} idle={!status.running} />
+            <LiveIndicator label="机器人进程" ok={status.running} idle={!status.running} />
           </div>
           {diagResult && (
             <div className="mt-3 text-xs flex justify-between items-center font-mono">

@@ -17,8 +17,10 @@ class AdminCommandHandler:
       删除昵称 wxid_xxx         → remove nickname mapping
       刷新昵称                   → reload from JSON
 
-    Commands (any user):
-      帮助 / help / 命令        → show help text
+    The user-facing 帮助 text deliberately does NOT live here — it is
+    generated from BotConfig by :mod:`src.help`, so it can never drift out
+    of sync with which features are actually enabled or what the trigger
+    keywords really are.
 
     Usage:
         handler = AdminCommandHandler(nickname_service)
@@ -43,23 +45,6 @@ class AdminCommandHandler:
             Reply text if the content was a recognized command, else None.
         """
         content = content.strip()
-
-        # ── Help command (any user) ─────────────────────────────
-        if content in ("帮助", "help", "命令"):
-            return (
-                f"@{requester_name} 可用命令：\n"
-                "━━━━━━━━━━━━━━\n"
-                "【管理命令】（仅管理员可用）：\n"
-                "  改名 wxid_xxx = 昵称    添加/修改昵称映射\n"
-                "  删除昵称 wxid_xxx         删除昵称映射\n"
-                "  刷新昵称                    重新加载昵称缓存\n\n"
-                "【全员命令】：\n"
-                "  抽签                          随机抽一支签\n"
-                "  帮助 / help                 显示本帮助（就是你正在看的这条）\n\n"
-                "【AI 功能】（@bot 即可）：\n"
-                "  总结：之前发了什么 / 总结一下 / 说了什么\n"
-                "  对话：@bot + 你想说的话，直接聊天\n"
-            )
 
         # ── 改名 command ────────────────────────────────────────
         if content.startswith("改名 "):

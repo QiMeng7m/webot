@@ -19,6 +19,7 @@ from .todo.store import TodoStore
 from .todo.handler import TodoHandler, format_todo_reply
 from .game.store import GameStore
 from .game.handler import GameHandler
+from .help import is_help_request, build_help_text, build_guide_text
 
 logger = logging.getLogger(__name__)
 
@@ -222,16 +223,21 @@ class MessageRouter:
 
             reply: Optional[str] = None
 
-            # ── Empty @mention → sticky listening mode ──────────────
+            # ── Empty @mention → sticky listening + 功能导览 ────────
             # User sent @bot but nothing else.  Register a sticky so
-            # their next message (without @mention) still reaches the bot.
-            if not clean_content.strip() and self._sticky is not None:
-                self._sticky.register(msg["chat_id"], msg["sender_id"])
-                logger.info(
-                    "Empty @mention from '%s' in %s — sticky listening active for %ds",
-                    msg["sender_name"], msg["chat_id"][:20],
-                    self._config.sticky_mention_ttl_sec,
-                )
+            # their next message (without @mention) still reaches the bot,
+            # AND answer with a short guide.  Previously this path was
+            # completely silent, which hid the whole feature set from
+            # anyone whose first move was to just @ the bot.
+            if not clean_content.strip():
+                if self._sticky is not None:
+                    self._sticky.register(msg["chat_id"], msg["sender_id"])
+                    logger.info(
+                        "Empty @mention from '%s' in %s — sticky listening active for %ds",
+                        msg["sender_name"], msg["chat_id"][:20],
+                        self._config.sticky_mention_ttl_sec,
+                    )
+                reply = build_guide_text(self._config, msg["sender_name"])
 
             if (
                 reply is None
@@ -250,8 +256,8 @@ class MessageRouter:
                         "AI 总结或飞书写入临时不可用，稍后再试一次。"
                     )
 
-            if reply is None and clean_content.strip() in ("帮助", "help", "命令"):
-                reply = self._admin.handle(clean_content, msg["sender_name"])
+            if reply is None and is_help_request(clean_content):
+                reply = build_help_text(self._config, msg["sender_name"])
 
             if self._config.fun_enabled and clean_content.strip() == "抽签":
                 from .fun import draw_lots

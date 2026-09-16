@@ -113,6 +113,8 @@ export default function GamePanel() {
   const [characters, setCharacters] = useState([])
   const [actionMsg, setActionMsg] = useState('')
   const [showManage, setShowManage] = useState(false)
+  // 配置项是一次性的事，排行榜是天天看的 —— 默认收起配置，把版面让给玩法数据
+  const [showConfig, setShowConfig] = useState(false)
 
   const retryRef = useRef(0)
 
@@ -306,129 +308,6 @@ export default function GamePanel() {
         )}
       </AnimatePresence>
 
-      {/* ── 功能开关与配置 ─────────────────────────────────────── */}
-      <div className="bg-bg-card border border-border-main rounded-2xl shadow-[rgba(0,0,0,0.03)_0px_2px_4px] dark:shadow-none p-7 mb-8">
-        <div className="flex items-center gap-2.5 mb-5 pl-1">
-          <div className="w-1.5 h-4.5 rounded-full shadow-sm" style={{ backgroundColor: GAME_ACCENT }} />
-          <h3 className="text-sm font-semibold tracking-tight text-text-main">修仙玩法配置</h3>
-        </div>
-
-        <div className="flex items-center justify-between mb-5">
-          <div className="flex-1 mr-8">
-            <p className="text-[15px] text-text-main font-medium">修仙体系</p>
-            <p className="text-sm text-text-muted mt-1.5">
-              群友正常聊天自动积累修为（有冷却与每日上限），@机器人发送「修炼」「突破」「渡劫」「排行榜」等命令。
-            </p>
-          </div>
-          <Toggle enabled={gameEnabled} onChange={setGameEnabled} />
-        </div>
-
-        <AnimatePresence>
-          {gameEnabled && (
-            <motion.div variants={configPanel} initial="initial" animate="animate" exit="exit"
-              className="p-4 bg-bg-raised rounded-lg space-y-5">
-
-              <div>
-                <p className="text-[14px] text-text-main font-medium">生效群聊范围</p>
-                <p className="text-xs text-text-muted mt-0.5 mb-2">选择哪些群聊启用修仙玩法，未选中的群不积累修为也不响应命令</p>
-                <div className="flex flex-wrap gap-2 mb-2">
-                  {(gameGroups || []).map((g, i) => (
-                    <span key={i} className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[13px]"
-                      style={{ backgroundColor: `${GAME_ACCENT}1a`, color: GAME_ACCENT, border: `1px solid ${GAME_ACCENT}33` }}>
-                      {g === '*' ? '全部群聊' : groupLabel(g)}
-                      <button type="button" onClick={() => removeGroup(i)}
-                        disabled={gameGroups.length === 1 && gameGroups[0] === '*'}
-                        className={`ml-0.5 leading-none text-base transition-colors ${(gameGroups.length === 1 && gameGroups[0] === '*') ? 'text-text-muted cursor-not-allowed' : 'opacity-60 hover:text-[#d45656] cursor-pointer'}`}>&times;</button>
-                    </span>
-                  ))}
-                </div>
-                <select value=""
-                  onChange={e => { if (e.target.value) { addGroup(e.target.value); e.target.value = '' } }}
-                  className="w-full bg-bg-raised border border-border-main rounded-lg px-3 py-2 text-[14px] text-text-main focus:outline-none focus:border-brand-green focus:ring-1 focus:ring-brand-green/15 transition-all cursor-pointer">
-                  <option value="">{availableGroups.length === 0 ? '加载群聊列表...' : '选择群聊...'}</option>
-                  {availableGroups.filter(ag => !gameGroups.includes(ag.chat_id)).map(ag => (
-                    <option key={ag.chat_id} value={ag.chat_id}>
-                      {ag.group_name} — {ag.member_count}人
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <ParamRow label="每句修为" hint="每条有效发言的基础修为（1-100）">
-                  <Input type="number" value={String(gameChatExp)}
-                    onChange={v => setGameChatExp(Math.max(1, Math.min(100, parseInt(v) || 2)))} />
-                </ParamRow>
-                <ParamRow label="发言冷却（秒）" hint="同一用户多久结算一次被动收益">
-                  <Input type="number" value={String(gameChatCooldown)}
-                    onChange={v => setGameChatCooldown(Math.max(0, parseInt(v) || 0))} />
-                </ParamRow>
-                <ParamRow label="每日上限" hint="每日被动修为上限（0=不限）">
-                  <Input type="number" value={String(gameDailyCap)}
-                    onChange={v => setGameDailyCap(Math.max(0, parseInt(v) || 0))} />
-                </ParamRow>
-                <ParamRow label="打坐冷却（秒）" hint="「修炼」命令的冷却时间">
-                  <Input type="number" value={String(gameActionCooldown)}
-                    onChange={v => setGameActionCooldown(Math.max(0, parseInt(v) || 0))} />
-                </ParamRow>
-                <ParamRow label="收益倍率" hint="全局调节玩法节奏（0.1-20.0）">
-                  <Input type="number" value={String(gameMultiplier)}
-                    onChange={v => setGameMultiplier(Math.max(0.1, Math.min(20, parseFloat(v) || 1)))} />
-                </ParamRow>
-                <ParamRow label="机缘间隔（分钟）" hint="天降机缘刷新间隔（0=关闭机缘）">
-                  <Input type="number" value={String(gameEncounterInterval)}
-                    onChange={v => setGameEncounterInterval(Math.max(0, parseInt(v) || 0))} />
-                </ParamRow>
-              </div>
-
-              <div className="flex items-center justify-between pt-1">
-                <div className="flex-1 mr-8">
-                  <p className="text-[14px] text-text-main font-medium">AI 剧情文案</p>
-                  <p className="text-xs text-text-muted mt-0.5">
-                    突破、渡劫等关键节点调用 AI 生成个性化旁白；关闭或调用失败时使用内置文案模板。
-                  </p>
-                </div>
-                <Toggle enabled={gameAiFlavor} onChange={setGameAiFlavor} />
-              </div>
-
-              <div className="p-3 bg-bg-main/60 border border-border-main rounded-xl">
-                <p className="text-xs text-text-muted leading-relaxed">
-                  💡 <strong>群内玩法：</strong><br />
-                  @机器人 <code>修炼</code> · <code>突破</code> · <code>渡劫</code> · <code>我的</code>
-                  · <code>排行榜</code> · <code>炼丹</code> · <code>服用 回气丹</code> · <code>论道 昵称</code> · <code>修仙帮助</code><br />
-                  <span className="text-text-muted/60">
-                    天降机缘会全群播报，第一个回复「抢机缘」的群友夺得。
-                  </span>
-                </p>
-              </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
-
-        <div className="mt-6 flex items-center gap-4">
-          <AnimatePresence>
-            {configSaved && (
-              <motion.div initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }}
-                className="flex items-center gap-2 px-5 py-2.5 bg-brand-green-light border border-brand-green/20 rounded-full text-sm text-brand-green-hover dark:text-brand-green font-medium shadow-sm">
-                <CheckCircle size={18} weight="fill" /> 配置已保存。需要重启机器人才能生效。
-              </motion.div>
-            )}
-            {configSaveError && (
-              <motion.div initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }}
-                className="flex items-center gap-2 px-5 py-2.5 bg-[#d45656]/5 border border-[#d45656]/20 rounded-full text-sm text-[#d45656] font-medium shadow-sm">
-                <Warning size={18} weight="fill" /> {configSaveError}
-              </motion.div>
-            )}
-          </AnimatePresence>
-          {!configSaved && !configSaveError && (
-            <motion.button whileTap={{ scale: 0.97 }} whileHover={{ scale: 1.02 }} onClick={handleSaveConfig}
-              className="w-48 py-2.5 rounded-full text-[14px] font-semibold tracking-wide shadow-sm transition-all duration-300 flex items-center justify-center gap-2 cursor-pointer bg-[#0d0d0d] dark:bg-white text-white dark:text-[#0d0d0d] border border-[#0d0d0d] dark:border-border-main hover:opacity-90">
-              <FloppyDisk size={18} /> 保存配置
-            </motion.button>
-          )}
-        </div>
-      </div>
-
       {/* ── 数据总览 ───────────────────────────────────────────── */}
       <div className="bg-bg-card border border-border-main rounded-2xl shadow-[rgba(0,0,0,0.03)_0px_2px_4px] dark:shadow-none p-7">
         <div className="flex items-center gap-2.5 mb-5 pl-1">
@@ -471,15 +350,22 @@ export default function GamePanel() {
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
               {/* 修为榜 */}
               <div>
-                <p className="text-[14px] font-semibold text-text-main mb-3">修为排行榜</p>
+                <p className="text-[14px] font-semibold text-text-main mb-3">
+                  修为排行榜
+                  {!selectedGroup && (
+                    <span className="ml-2 text-[11px] font-normal text-text-muted">全服榜</span>
+                  )}
+                </p>
                 {ranking.length === 0 ? (
                   <p className="text-sm text-text-muted py-6">
-                    {selectedGroup ? '这个群还没有修士。' : '还没有任何修士——开启玩法后群友聊天即可入道。'}
+                    {overview.total > 0
+                      ? '这个群还没有修士，换个群看看，或选择「全部群聊」看全服榜。'
+                      : '还没有任何修士——群友在群里聊几句，或在群里 @机器人 发送「修炼」即可入道。'}
                   </p>
                 ) : (
                   <div className="space-y-2">
                     {ranking.map((c, i) => (
-                      <div key={c.user_id} className="flex items-center gap-3 p-3 bg-bg-raised rounded-xl">
+                      <div key={`${c.chat_id}:${c.user_id}`} className="flex items-center gap-3 p-3 bg-bg-raised rounded-xl">
                         <span className={`w-6 text-center text-[13px] font-mono shrink-0 ${i < 3 ? 'font-semibold' : 'text-text-muted'}`}
                           style={i < 3 ? { color: GAME_ACCENT } : undefined}>
                           {i + 1}
@@ -487,6 +373,12 @@ export default function GamePanel() {
                         <div className="min-w-0 flex-1">
                           <div className="flex items-center gap-2 mb-1">
                             <span className="text-[13px] text-text-main truncate">{c.user_name}</span>
+                            {!selectedGroup && (
+                              <span className="text-[11px] text-text-muted truncate shrink-0 max-w-[110px]"
+                                title={groupLabel(c.chat_id)}>
+                                {groupLabel(c.chat_id)}
+                              </span>
+                            )}
                             <RealmBadge realmName={c.realm_name} realmLabel={c.realm_label} />
                           </div>
                           <ProgressBar progress={c.progress} exp={c.exp} expNeeded={c.exp_needed} />
@@ -594,6 +486,133 @@ export default function GamePanel() {
           </>
         )}
       </div>
+      {/* ── 功能开关与配置 ─────────────────────────────────────── */}
+      <div className="bg-bg-card border border-border-main rounded-2xl shadow-[rgba(0,0,0,0.03)_0px_2px_4px] dark:shadow-none p-7">
+        <div className="flex items-center gap-2.5 pl-1">
+          <div className="w-1.5 h-4.5 rounded-full shadow-sm" style={{ backgroundColor: GAME_ACCENT }} />
+          <h3 className="text-sm font-semibold tracking-tight text-text-main">修仙玩法配置</h3>
+          <button onClick={() => setShowConfig(!showConfig)}
+            className="ml-auto px-4 py-1.5 rounded-full text-[13px] font-medium bg-bg-raised border border-border-main text-text-main hover:border-text-muted/30 transition-colors cursor-pointer">
+            {showConfig ? '收起配置' : '展开配置'}
+          </button>
+        </div>
+
+        <div className="flex items-center justify-between mt-5 mb-1">
+          <div className="flex-1 mr-8">
+            <p className="text-[15px] text-text-main font-medium">修仙体系</p>
+            <p className="text-sm text-text-muted mt-1.5">
+              群友正常聊天自动积累修为（有冷却与每日上限），@机器人发送「修炼」「突破」「渡劫」「排行榜」等命令。
+            </p>
+          </div>
+          <Toggle enabled={gameEnabled} onChange={setGameEnabled} />
+        </div>
+
+        <AnimatePresence>
+          {gameEnabled && showConfig && (
+            <motion.div variants={configPanel} initial="initial" animate="animate" exit="exit"
+              className="p-4 bg-bg-raised rounded-lg space-y-5">
+
+              <div>
+                <p className="text-[14px] text-text-main font-medium">生效群聊范围</p>
+                <p className="text-xs text-text-muted mt-0.5 mb-2">选择哪些群聊启用修仙玩法，未选中的群不积累修为也不响应命令</p>
+                <div className="flex flex-wrap gap-2 mb-2">
+                  {(gameGroups || []).map((g, i) => (
+                    <span key={i} className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[13px]"
+                      style={{ backgroundColor: `${GAME_ACCENT}1a`, color: GAME_ACCENT, border: `1px solid ${GAME_ACCENT}33` }}>
+                      {g === '*' ? '全部群聊' : groupLabel(g)}
+                      <button type="button" onClick={() => removeGroup(i)}
+                        disabled={gameGroups.length === 1 && gameGroups[0] === '*'}
+                        className={`ml-0.5 leading-none text-base transition-colors ${(gameGroups.length === 1 && gameGroups[0] === '*') ? 'text-text-muted cursor-not-allowed' : 'opacity-60 hover:text-[#d45656] cursor-pointer'}`}>&times;</button>
+                    </span>
+                  ))}
+                </div>
+                <select value=""
+                  onChange={e => { if (e.target.value) { addGroup(e.target.value); e.target.value = '' } }}
+                  className="w-full bg-bg-raised border border-border-main rounded-lg px-3 py-2 text-[14px] text-text-main focus:outline-none focus:border-brand-green focus:ring-1 focus:ring-brand-green/15 transition-all cursor-pointer">
+                  <option value="">{availableGroups.length === 0 ? '加载群聊列表...' : '选择群聊...'}</option>
+                  {availableGroups.filter(ag => !gameGroups.includes(ag.chat_id)).map(ag => (
+                    <option key={ag.chat_id} value={ag.chat_id}>
+                      {ag.group_name} — {ag.member_count}人
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <ParamRow label="每句修为" hint="每条有效发言的基础修为（1-100）">
+                  <Input type="number" value={String(gameChatExp)}
+                    onChange={v => setGameChatExp(Math.max(1, Math.min(100, parseInt(v) || 2)))} />
+                </ParamRow>
+                <ParamRow label="发言冷却（秒）" hint="同一用户多久结算一次被动收益">
+                  <Input type="number" value={String(gameChatCooldown)}
+                    onChange={v => setGameChatCooldown(Math.max(0, parseInt(v) || 0))} />
+                </ParamRow>
+                <ParamRow label="每日上限" hint="每日被动修为上限（0=不限）">
+                  <Input type="number" value={String(gameDailyCap)}
+                    onChange={v => setGameDailyCap(Math.max(0, parseInt(v) || 0))} />
+                </ParamRow>
+                <ParamRow label="打坐冷却（秒）" hint="「修炼」命令的冷却时间">
+                  <Input type="number" value={String(gameActionCooldown)}
+                    onChange={v => setGameActionCooldown(Math.max(0, parseInt(v) || 0))} />
+                </ParamRow>
+                <ParamRow label="收益倍率" hint="全局调节玩法节奏（0.1-20.0）">
+                  <Input type="number" value={String(gameMultiplier)}
+                    onChange={v => setGameMultiplier(Math.max(0.1, Math.min(20, parseFloat(v) || 1)))} />
+                </ParamRow>
+                <ParamRow label="机缘间隔（分钟）" hint="天降机缘刷新间隔（0=关闭机缘）">
+                  <Input type="number" value={String(gameEncounterInterval)}
+                    onChange={v => setGameEncounterInterval(Math.max(0, parseInt(v) || 0))} />
+                </ParamRow>
+              </div>
+
+              <div className="flex items-center justify-between pt-1">
+                <div className="flex-1 mr-8">
+                  <p className="text-[14px] text-text-main font-medium">AI 剧情文案</p>
+                  <p className="text-xs text-text-muted mt-0.5">
+                    突破、渡劫等关键节点调用 AI 生成个性化旁白；关闭或调用失败时使用内置文案模板。
+                  </p>
+                </div>
+                <Toggle enabled={gameAiFlavor} onChange={setGameAiFlavor} />
+              </div>
+
+              <div className="p-3 bg-bg-main/60 border border-border-main rounded-xl">
+                <p className="text-xs text-text-muted leading-relaxed">
+                  💡 <strong>群内玩法：</strong><br />
+                  @机器人 <code>修炼</code> · <code>突破</code> · <code>渡劫</code> · <code>我的</code>
+                  · <code>排行榜</code> · <code>炼丹</code> · <code>服用 回气丹</code> · <code>论道 昵称</code> · <code>修仙帮助</code><br />
+                  <span className="text-text-muted/60">
+                    天降机缘会全群播报，第一个回复「抢机缘」的群友夺得。
+                  </span>
+                </p>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        <div className="mt-6 flex items-center gap-4">
+          <AnimatePresence>
+            {configSaved && (
+              <motion.div initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }}
+                className="flex items-center gap-2 px-5 py-2.5 bg-brand-green-light border border-brand-green/20 rounded-full text-sm text-brand-green-hover dark:text-brand-green font-medium shadow-sm">
+                <CheckCircle size={18} weight="fill" /> 配置已保存。需要重启机器人才能生效。
+              </motion.div>
+            )}
+            {configSaveError && (
+              <motion.div initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }}
+                className="flex items-center gap-2 px-5 py-2.5 bg-[#d45656]/5 border border-[#d45656]/20 rounded-full text-sm text-[#d45656] font-medium shadow-sm">
+                <Warning size={18} weight="fill" /> {configSaveError}
+              </motion.div>
+            )}
+          </AnimatePresence>
+          {!configSaved && !configSaveError && (
+            <motion.button whileTap={{ scale: 0.97 }} whileHover={{ scale: 1.02 }} onClick={handleSaveConfig}
+              className="w-48 py-2.5 rounded-full text-[14px] font-semibold tracking-wide shadow-sm transition-all duration-300 flex items-center justify-center gap-2 cursor-pointer bg-[#0d0d0d] dark:bg-white text-white dark:text-[#0d0d0d] border border-[#0d0d0d] dark:border-border-main hover:opacity-90">
+              <FloppyDisk size={18} /> 保存配置
+            </motion.button>
+          )}
+        </div>
+      </div>
+
     </div>
   )
 }
