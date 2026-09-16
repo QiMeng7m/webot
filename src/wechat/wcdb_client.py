@@ -10,8 +10,9 @@ import hashlib
 import json
 import logging
 import os
-import sys
 from pathlib import Path
+
+from .native_dlls import ensure_dll
 
 logger = logging.getLogger(__name__)
 
@@ -190,22 +191,18 @@ def _read_gbk_string(ptr):
 
 
 def _find_dll():
-    """Find the bundled wcdb_api.dll."""
-    candidates = [
-        Path(__file__).resolve().parent.parent.parent / "native" / "windows" / "wcdb_api.dll",
-    ]
-    if getattr(sys, "frozen", False):
-        candidates.insert(0, Path(sys.executable).resolve().parent / "native" / "windows" / "wcdb_api.dll")
-        candidates.insert(0, Path(sys._MEIPASS) / "native" / "windows" / "wcdb_api.dll")
+    """Find the bundled wcdb_api.dll.
 
-    for c in candidates:
-        if c.exists():
-            logger.info("Found wcdb_api.dll at: %s", c)
-            return str(c.parent), str(c)
+    Returns:
+        ``(dll_dir, dll_path)``.
 
-    raise FileNotFoundError(
-        "wcdb_api.dll not found. Please place it in the native/windows/ folder next to the EXE."
-    )
+    Raises:
+        NativeDllMissingError: when wcdb_api.dll is absent from every
+            candidate directory.
+    """
+    found = ensure_dll("wcdb_api.dll")
+    logger.info("Found wcdb_api.dll at: %s", found)
+    return str(found.parent), str(found)
 
 
 def _find_wxid_and_dbpath(custom_base_dir: str = ""):

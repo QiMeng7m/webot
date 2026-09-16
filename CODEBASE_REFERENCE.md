@@ -73,6 +73,7 @@ grep "文件名" CODEBASE_REFERENCE.md
    - [功能I: 语音识别](#功能i-语音识别)
    - [功能J: 聊天记忆](#功能j-聊天记忆)
    - [功能K: macOS适配](#功能k-macos适配)
+   - [功能L: 修仙玩法](#功能l-修仙玩法)
 5. [配置文件和环境变量](#5-配置文件和环境变量)
 
 ---
@@ -121,6 +122,15 @@ grep "文件名" CODEBASE_REFERENCE.md
 | `TODO_ADD_KEYWORDS` | `list[str]` | `["记一下","添加待办","新建待办","帮我记","待办"]` | `src/config.py` | `src/todo/handler.py:TodoHandler.handle()` |
 | `TODO_COMPLETE_KEYWORDS` | `list[str]` | `["搞定","做完了","完成","完成了","done"]` | `src/config.py` | `src/todo/handler.py` |
 | `TODO_DELETE_KEYWORDS` | `list[str]` | `["删掉","删除","取消","不要了"]` | `src/config.py` | `src/todo/handler.py` |
+| `GAME_ENABLED` | `bool` | `False` | `src/config.py` | `src/router.py:MessageRouter.__init__()` |
+| `GAME_GROUPS` | `list[str]` | `["*"]` | `src/config.py` | `src/router.py:_is_game_group()` |
+| `GAME_CHAT_EXP` | `int` | `2` | `src/config.py` | `src/game/handler.py:GameHandler.record_activity()` |
+| `GAME_CHAT_COOLDOWN_SEC` | `int` | `30` | `src/config.py` | `src/game/handler.py:GameHandler.record_activity()` |
+| `GAME_DAILY_EXP_CAP` | `int` | `200` | `src/config.py` | `src/game/handler.py:GameHandler.record_activity()` |
+| `GAME_ACTION_COOLDOWN_SEC` | `int` | `300` | `src/config.py` | `src/game/handler.py:GameHandler._cmd_cultivate()` |
+| `GAME_EXP_MULTIPLIER` | `float` | `1.0` | `src/config.py` | `src/game/engine.py:gain_for_realm()` |
+| `GAME_ENCOUNTER_INTERVAL_MIN` | `int` | `45` | `src/config.py` | `src/game/handler.py:GameHandler._maybe_spawn_encounter()` |
+| `GAME_AI_FLAVOR_ENABLED` | `bool` | `True` | `src/config.py` | `src/game/flavor.py:FlavorGenerator.__init__()` |
 | `POLL_INTERVAL_SEC` | `float` | `1.0` | `src/config.py` | `src/bot.py:_create_wechat_backend()` → `WcdbBackend.__init__()` |
 | `DEDUP_WINDOW_SEC` | `int` | `60` | `src/config.py` | (通过 config 传递，当前代码未直接使用) |
 | `MAX_MESSAGES_FOR_SUMMARY` | `int` | `5000` | `src/config.py` | `src/router.py:_handle_summary()` |
@@ -179,6 +189,19 @@ grep "文件名" CODEBASE_REFERENCE.md
 | `HEX_KEY_LEN` | `int` | `64` | `src/wechat/mac_weflow_client.py` | WCDB 密钥长度 |
 | `_CACHE_MAX_ENTRIES` | `int` | `10000` | `src/voice/pipeline.py` | 语音缓存最大条目 |
 | `_CACHE_TTL_SEC` | `int` | `604800` (7天) | `src/voice/pipeline.py` | 语音缓存过期时间 |
+| `REALMS` | `list[tuple[str,int]]` | 9 大境界 | `src/game/realms.py` | 境界表(境界名, 每阶基础修为) |
+| `STAGES` | `tuple[str,...]` | `("初期","中期","后期")` | `src/game/realms.py` | 每境界的三小阶 |
+| `IMMORTAL_INDEX` | `int` | `27` | `src/game/realms.py` | 满级下标(仙人) |
+| `PILLS` | `dict` | 回气丹/破境丹/洗髓丹 | `src/game/realms.py` | 丹药表(权重+效果) |
+| `TECHNIQUES` | `dict` | 6 本功法 | `src/game/realms.py` | 功法表(权重+加成) |
+| `TEMPLATES` | `dict[str,list[str]]` | 各事件文案池 | `src/game/realms.py` | AI 不可用时的降级文案 |
+| `MIN_CHAT_LENGTH` | `int` | `4` | `src/game/realms.py` | 被动收益的最短消息长度 |
+| `ALCHEMY_COST` / `ALCHEMY_DAILY_LIMIT` | `int` | `20` / `3` | `src/game/realms.py` | 炼丹消耗灵石 / 每日次数 |
+| `DUEL_DAILY_LIMIT` / `DUEL_MAX_REALM_GAP` | `int` | `3` / `2` | `src/game/realms.py` | 论道每日次数 / 可挑战境界差 |
+| `ENCOUNTER_WINDOW_SEC` | `int` | `300` | `src/game/realms.py` | 机缘抢占窗口(秒) |
+| `ENCOUNTER_ACTIVE_MIN_MESSAGES` | `int` | `5` | `src/game/realms.py` | 判定活跃群的最少消息数 |
+| `FLAVOR_TIMEOUT_SEC` | `float` | `3.0` | `src/game/flavor.py` | AI 文案等待上限, 超时降级模板 |
+| `_MAX_LAST_CONTENT` | `int` | `500` | `src/game/handler.py` | 复读检测表上限 |
 
 ### 1.3 触发关键词默认值
 
@@ -205,6 +228,19 @@ todo_complete_keywords: list[str] = [
 
 todo_delete_keywords: list[str] = [
     "删掉", "删除", "取消", "不要了",
+]
+
+# 修仙玩法命令词（定义位置: src/game/handler.py GameHandler.handle）
+game_commands: list[str] = [
+    # 行动
+    "修炼", "打坐", "吐纳", "突破", "冲关", "渡劫",
+    # 查看
+    "我的", "面板", "角色", "查看修为", "属性",
+    "排行榜", "修为榜", "榜单", "排名", "修仙帮助", "修仙说明",
+    # 资源
+    "炼丹", "炼药", "服用", "吃掉", "嗑药",
+    # 互动
+    "论道", "挑战", "切磋", "抢机缘", "机缘", "夺取机缘", "抢",
 ]
 ```
 
@@ -383,13 +419,46 @@ todo_delete_keywords: list[str] = [
 
 | 函数 | 描述 | 参数 | 返回值 |
 |---|---|---|---|
-| `extract_wcdb_key(require_restart=True, on_progress=None)` | 提取 WCDB 解密密钥(主入口) | `require_restart: bool, on_progress: Callable \| None` | `str \| None` (64字符hex) |
+| `extract_wcdb_key(require_restart=True, on_progress=None)` | 提取 WCDB 解密密钥(主入口) | `require_restart: bool, on_progress: Callable \| None` | `str \| None` (64字符hex)；DLL 缺失时抛 `NativeDllMissingError` |
 | `_find_wechat_pid()` | 查找微信进程 PID(内部) | 无 | `int \| None` |
-| `_find_wx_key_dll()` | 定位 wx_key.dll(内部) | 无 | `str \| None` |
-| `_verify_dll_loadable(dll_path)` | 预检查 DLL 是否能加载(内部) | `dll_path: str` | `str \| None` (None=OK, str=错误信息) |
-| `_hook_and_poll(pid, dll_path, timeout=180)` | 安装 Hook 并轮询密钥(内部) | `pid: int, dll_path: str, timeout: int` | `str \| None` |
+| `_verify_dll_loadable(dll_path)` | 预检查 DLL 是否能加载(内部)，委派给 `native_dlls.verify_loadable` | `dll_path: str` | `str \| None` (None=OK, str=错误信息) |
+| `_hook_and_poll(pid, dll_path, timeout=180)` | 安装 Hook 并轮询密钥(内部) | `pid: int, dll_path: str, timeout: int` | `str \| None`；DLL 加载失败时抛 `NativeDllMissingError` |
 | `extract_aes_key()` | 兼容包装 | 无 | `str \| None` |
 | `decrypt_wcdb_key(aes_hex)` | 验证hex密钥有效性 | `aes_hex: str` | `str \| None` |
+
+> `_find_wx_key_dll()` 已删除 — 定位职责统一收敛到 `native_dlls.ensure_dll()`。
+
+### 2.11b `src/wechat/native_dlls.py`
+
+原生 DLL（`native/windows/*.dll`）的定位、校验与报错。这些二进制被 `.gitignore` 排除，
+全新 clone 的仓库不存在该目录，因此需要一处集中判断"缺什么、去哪补"。
+
+| 函数 | 描述 | 参数 | 返回值 |
+|---|---|---|---|
+| `project_root()` | 仓库根目录(即 `native/` 的父目录) | 无 | `Path` |
+| `candidate_dll_dirs()` | 按优先级列出 DLL 查找目录(冻结时含 `_MEIPASS` 与 EXE 同级) | 无 | `list[Path]` |
+| `canonical_dll_dir()` | DLL 应安装到的规范目录 | 无 | `Path` |
+| `find_dll(name)` | 在查找目录中定位单个 DLL | `name: str` | `Path \| None` |
+| `missing_in(dll_dir, required=REQUIRED_WINDOWS_DLLS)` | 列出该目录下缺失的 DLL | `dll_dir: Path, required: Sequence[str]` | `list[str]` |
+| `scan(required=REQUIRED_WINDOWS_DLLS)` | 选出 DLL 最齐全的目录 | `required: Sequence[str]` | `tuple[Path, list[str], list[Path]]` |
+| `describe_missing(dll_dir, missing, searched=None, include_searched=True)` | 生成可操作的缺失说明 | `dll_dir: Path, missing: Sequence[str], searched: Sequence[Path] \| None, include_searched: bool` | `str` |
+| `ensure_dll(name)` | 返回 DLL 路径，缺失则抛异常 | `name: str` | `Path`；失败抛 `NativeDllMissingError` |
+| `verify_loadable(dll_path)` | 尝试 LoadLibrary，区分错误码 126/193 | `dll_path: Path` | `str \| None` (None=OK) |
+| `format_report()` | 生成全部 DLL 的状态报告(CLI 用) | 无 | `str` |
+| `main(argv=None)` | CLI 入口，缺失时返回 1 | `argv: Sequence[str] \| None` | `int` |
+
+模块常量：
+
+| 常量 | 值 | 说明 |
+|---|---|---|
+| `REQUIRED_WINDOWS_DLLS` | `("wx_key.dll", "wcdb_api.dll", "WCDB.dll", "MSVCP140.dll", "VCRUNTIME140.dll", "VCRUNTIME140_1.dll")` | 运行必需的 6 个 DLL |
+| `OPTIONAL_WINDOWS_DLLS` | `("keyhook.dll",)` | 仅 `native/injector.py` 使用，非主路径 |
+| `NativeDllMissingError` | `RuntimeError` 子类 | DLL 缺失/加载失败的统一异常类型 |
+
+```bash
+# 检查 native/windows/ 是否就位（缺失时退出码 1）
+python -m src.wechat.native_dlls
+```
 
 ### 2.12 `src/wechat/helpers.py`
 
@@ -541,7 +610,104 @@ todo_delete_keywords: list[str] = [
 | `reset_lots_cache()` | 清除抽签缓存 | 无 | `None` |
 | `draw_lots(requester_name)` | 抽签 | `requester_name: str` | `str` |
 
-### 2.26 `src/voice/pipeline.py` (VoicePipeline)
+### 2.26 `src/game/` (修仙玩法)
+
+> 群聊修仙小游戏。五文件分层：`realms`(数据) → `engine`(纯逻辑) → `store`(持久化) → `flavor`(文案) → `handler`(命令)。
+
+#### 2.26a `src/game/realms.py` — 纯数据表与查表函数
+
+| 函数 | 描述 | 参数 | 返回值 |
+|---|---|---|---|
+| `realm_label(realm_index)` | 境界下标 → 显示名(如「金丹中期」) | `realm_index: int` | `str` |
+| `realm_short_name(realm_index)` | 只取大境界名(排行榜徽章用) | `realm_index: int` | `str` |
+| `exp_needed(realm_index)` | 突破到下一阶所需修为(仙人返回 0) | `realm_index: int` | `int` |
+| `is_tribulation(realm_index)` | 是否为渡劫(渡劫后期 → 仙人) | `realm_index: int` | `bool` |
+| `is_max_realm(realm_index)` | 是否已达仙人 | `realm_index: int` | `bool` |
+| `technique_effect(technique, key, default)` | 读取功法某项加成 | `technique: str, key: str, default=0.0` | `float` |
+| `weighted_pick(table, rng)` | 按 `weight` 字段加权随机取键 | `table: dict, rng: Random` | `str` |
+
+#### 2.26b `src/game/engine.py` — 纯逻辑(不碰 DB/IO/网络)
+
+| 函数 | 描述 | 参数 | 返回值 |
+|---|---|---|---|
+| `gain_for_realm(base, realm_index, multiplier)` | 按境界放大基础收益(≥1) | `base: int, realm_index: int, multiplier: float=1.0` | `int` |
+| `passive_exp(realm_index, base, technique, multiplier)` | 群聊发言被动修为(含功法加成) | 同上 + `technique: str` | `int` |
+| `active_exp(realm_index, base, technique, multiplier)` | 主动「修炼」修为 | 同上 | `int` |
+| `encounter_stones(realm_index, technique, rng)` | 机缘灵石收益(含御风术加成) | `realm_index, technique, rng` | `int` |
+| `exp_progress(realm_index, exp)` | 当前阶修为进度 `0.0~1.0` | `realm_index: int, exp: int` | `float` |
+| `breakthrough_chance(realm_index, technique, pending_bonus, fail_streak)` | 突破成功率, 夹在 [0.15, 0.98] | 见签名 | `float` |
+| `resolve_breakthrough(realm_index, exp, technique, pending_bonus, fail_streak, rng)` | 结算一次突破 | 见签名 | `BreakthroughResult` |
+| `apply_pill(character, pill_name, exp_cap)` | 丹药效果作用到角色(就地修改) | `character, pill_name: str, exp_cap: int=0` | `str`(效果说明) |
+| `cooldown_remaining(last_ts, cooldown_sec, now)` | 距下次可用秒数, 0=已可用 | `last_ts: float, cooldown_sec: int, now=None` | `int` |
+| `is_valid_chat_content(text, last_content)` | 防刷过滤(过短/纯表情/复读) | `text: str, last_content: str=""` | `bool` |
+| `today_key(now)` | 当日标识 `YYYY-MM-DD` | `now: float=None` | `str` |
+| `rollover_daily(character, key)` | 跨天重置每日计数(就地修改) | `character, key: str` | `None` |
+| `remaining_daily_exp(character, cap)` | 今日剩余被动修为额度 | `character, cap: int` | `int` |
+| `duel_allowed(challenger_realm, target_realm)` | 论道境界差校验 | `challenger_realm, target_realm: int` | `tuple[bool, str]` |
+| `duel_stake(loser_exp)` | 论道败者被夺修为(至少 1, 不超过其修为) | `loser_exp: int` | `int` |
+
+`BreakthroughResult` 字段: `success, chance, is_tribulation, from_index, to_index, realm_after, exp_after, fail_streak, spirit_stones_gained, learned_technique`
+
+#### 2.26c `src/game/store.py` (GameStore / GameCharacter / GameEvent / GroupState)
+
+| 函数 | 描述 | 参数 | 返回值 |
+|---|---|---|---|
+| `GameStore.__init__(db_path)` | 初始化并自建三张表(幂等) | `db_path: str` | `None` |
+| `_connect()` | 打开短连接(退出时关闭) | 无 | `contextlib.closing` |
+| `get_character(chat_id, user_id)` | 读角色卡 | `chat_id, user_id: str` | `GameCharacter \| None` |
+| `get_or_create(chat_id, user_id, user_name)` | 读或建角色(顺带刷新显示名) | 见签名 | `GameCharacter` |
+| `save_character(char)` | 整体写回角色卡(UPSERT) | `char: GameCharacter` | `None` |
+| `list_ranking(chat_id, limit)` | 群内修为榜(境界→累计修为) | `chat_id: str, limit: int=20` | `list[GameCharacter]` |
+| `list_characters(chat_id, search, limit, offset)` | 角色列表(UI 管理用) | 见签名 | `list[GameCharacter]` |
+| `get_overview(chat_id)` | 汇总统计(人数/最高境界/均值/灵石) | `chat_id: str=""` | `dict` |
+| `reset_character(chat_id, user_id)` | 打回炼气初期(管理员) | `chat_id, user_id: str` | `bool` |
+| `grant_stones(chat_id, user_id, amount)` | 发放灵石(可为负, 余额≥0) | `chat_id, user_id: str, amount: int` | `bool` |
+| `set_realm(chat_id, user_id, realm_index)` | 直接设定境界并清零修为 | `chat_id, user_id, realm_index` | `bool` |
+| `log_event(chat_id, kind, actor_id, actor_name, summary, detail)` | 记录修仙大事记 | 见签名 | `None` |
+| `list_events(chat_id, limit)` | 事件列表(倒序) | `chat_id: str="", limit: int=50` | `list[GameEvent]` |
+| `count_events_since(since_ts, chat_id)` | 统计某时间点后的事件数 | `since_ts: float, chat_id: str=""` | `int` |
+| `get_group_state(chat_id)` | 读群机缘状态(缺省返回全零, 不落库) | `chat_id: str` | `GroupState` |
+| `save_group_state(state)` | 整体写回群状态(UPSERT) | `state: GroupState` | `None` |
+| `spawn_encounter(chat_id, now, expires_at, reward_kind, reward_amount)` | 刷新一次天降机缘 | 见签名 | `None` |
+| `claim_encounter(chat_id, now)` | **原子**抢占机缘(`BEGIN IMMEDIATE` 先读后写) | `chat_id: str, now: float` | `tuple[str,int] \| None` |
+| `clear_encounter(chat_id)` | 清空当前机缘(过期回收) | `chat_id: str` | `None` |
+| `get_active_chat_ids()` | 有角色数据的群列表 | 无 | `list[str]` |
+
+#### 2.26d `src/game/flavor.py` (FlavorGenerator)
+
+| 函数 | 描述 | 参数 | 返回值 |
+|---|---|---|---|
+| `__init__(summarizer, enabled, rng)` | 初始化文案生成器 | `summarizer=None, enabled=True, rng=None` | `None` |
+| `generate(kind, fallback_pool, **fields)` | 生成事件旁白(优先 AI, 失败降级模板) | `kind: str, fallback_pool: list[str], **fields` | `str` |
+| `_try_ai(kind, **fields)` | 调 AI; 超时/异常返回空串 | `kind: str, **fields` | `str` |
+| `render_template(pool, **fields)` | 模板池随机取一条并渲染 | `pool: list[str], **fields` | `str` |
+| `pool(kind)` | 按事件类型取模板池(静态) | `kind: str` | `list[str]` |
+
+#### 2.26e `src/game/handler.py` (GameHandler)
+
+| 函数 | 描述 | 参数 | 返回值 |
+|---|---|---|---|
+| `__init__(store, config, summarizer, message_store, rng)` | 初始化命令处理器 | 见签名 | `None` |
+| `record_activity(msg)` | 每条群消息调一次; 静默累积修为, 返回机缘播报文本 | `msg: dict` | `str \| None` |
+| `handle(clean_content, chat_id, sender_id, sender_name)` | 解析并执行 @bot 玩法命令 | 见签名 | `str \| None` |
+| `_is_claim_command(content)` | 是否为「抢机缘」类命令(静态) | `content: str` | `bool` |
+| `_maybe_spawn_encounter(chat_id, now)` | 按间隔与群活跃度决定是否刷新机缘 | `chat_id: str, now: float` | `str \| None` |
+| `_group_is_active(chat_id, now)` | 最近 10 分钟消息量是否达标 | `chat_id: str, now: float` | `bool` |
+| `_claim_encounter(chat_id, char, now)` | 抢占机缘并结算灵石 | 见签名 | `str \| None` |
+| `_match(text, keywords)` | 命令词匹配(整句或前缀+分隔符, 静态) | `text: str, keywords: tuple` | `bool` |
+| `_cmd_help(sender_name)` | 「修仙帮助」 | `sender_name: str` | `str` |
+| `_cmd_cultivate(chat_id, sender_id, sender_name, now)` | 「修炼/打坐」 | 见签名 | `str` |
+| `_cmd_breakthrough(...)` / `_cmd_tribulation(...)` | 「突破」/「渡劫」入口 | 见签名 | `str` |
+| `_do_breakthrough(chat_id, sender_id, sender_name, now, require_tribulation)` | 突破结算共用实现 | 见签名 | `str` |
+| `_cmd_profile(chat_id, sender_id, sender_name)` | 「我的」角色卡 | 见签名 | `str` |
+| `_cmd_ranking(chat_id, sender_name)` | 「排行榜」 | 见签名 | `str` |
+| `_cmd_alchemy(chat_id, sender_id, sender_name, now)` | 「炼丹」 | 见签名 | `str` |
+| `_cmd_take_pill(chat_id, sender_id, sender_name, text)` | 「服用 <丹药>」 | 见签名 | `str` |
+| `_resolve_pill(char, arg)` | 丹药名解析(支持省略「丹」字, 静态) | `char: GameCharacter, arg: str` | `str` |
+| `_cmd_duel(chat_id, sender_id, sender_name, text)` | 「论道 <群友>」 | 见签名 | `str` |
+| `_find_member(chat_id, name)` | 按昵称在本群角色里查找 | `chat_id: str, name: str` | `GameCharacter \| None` |
+
+### 2.27 `src/voice/pipeline.py` (VoicePipeline)
 
 | 函数 | 描述 | 参数 | 返回值 |
 |---|---|---|---|
@@ -549,7 +715,7 @@ todo_delete_keywords: list[str] = [
 | `VoicePipeline.process(msg)` | 转写语音消息 | `msg: dict` | `str \| None` |
 | `VoicePipeline.flush()` | 持久化缓存 | 无 | `None` |
 
-### 2.27 `src/voice/asr.py`
+### 2.28 `src/voice/asr.py`
 
 | 函数 | 描述 | 参数 | 返回值 |
 |---|---|---|---|
@@ -557,20 +723,20 @@ todo_delete_keywords: list[str] = [
 | `OpenAiWhisperASR.transcribe(audio_path, language)` | OpenAI Whisper API 转写 | `audio_path: Path, language: str` | `TranscribeResult` |
 | `create_asr(config)` | ASR 工厂函数 | `config` | `AbstractASR` |
 
-### 2.28 `src/voice/decoder.py` (SilkDecoder)
+### 2.29 `src/voice/decoder.py` (SilkDecoder)
 
 | 函数 | 描述 | 参数 | 返回值 |
 |---|---|---|---|
 | `SilkDecoder.decode(audio_path)` | 解码 SILK/AMR → WAV | `audio_path: Path` | `Path` |
 
-### 2.29 `src/voice/file_locator.py` (VoiceFileLocator)
+### 2.30 `src/voice/file_locator.py` (VoiceFileLocator)
 
 | 函数 | 描述 | 参数 | 返回值 |
 |---|---|---|---|
 | `VoiceFileLocator.__init__(wechat_data_dir)` | 初始化文件定位器 | `wechat_data_dir: str` | `None` |
 | `VoiceFileLocator.find_voice_file(msg)` | 查找语音文件 | `msg: dict` | `Path \| None` |
 
-### 2.30 `src/integrations/feishu/client.py` (FeishuClient)
+### 2.31 `src/integrations/feishu/client.py` (FeishuClient)
 
 | 函数 | 描述 | 参数 | 返回值 |
 |---|---|---|---|
@@ -584,7 +750,7 @@ todo_delete_keywords: list[str] = [
 | `create_docx_blocks(document_id, block_id, children)` | 文档追加内容 | `document_id, block_id, children` | `dict` |
 | `create_docx_with_markdown(title, markdown, folder_token)` | 创建文档(含markdown内容) | `title, markdown, folder_token` | `dict` |
 
-### 2.31 `src/integrations/feishu/exporter.py` (FeishuExportService)
+### 2.32 `src/integrations/feishu/exporter.py` (FeishuExportService)
 
 | 函数 | 描述 | 参数 | 返回值 |
 |---|---|---|---|
@@ -593,13 +759,13 @@ todo_delete_keywords: list[str] = [
 | `export_recent_chat(trigger_msg)` | 导出最近聊天(手动) | `trigger_msg: dict` | `FeishuExportResult` |
 | `maybe_auto_export(msg)` | 自动同步(静默) | `msg: dict` | `FeishuExportResult \| None` |
 
-### 2.32 `src/utils/logging_config.py`
+### 2.33 `src/utils/logging_config.py`
 
 | 函数 | 描述 | 参数 | 返回值 |
 |---|---|---|---|
 | `setup_logging(level, log_file)` | 配置日志系统 | `level: str, log_file: str \| None` | `None` |
 
-### 2.33 `src/web/server.py` (核心 API 模块)
+### 2.34 `src/web/server.py` (核心 API 模块)
 
 | 函数 | 描述 | 参数 | 返回值 |
 |---|---|---|---|
@@ -624,10 +790,14 @@ todo_delete_keywords: list[str] = [
 | `_platform_wechat_report(...)` | 微信进程状态诊断 | 可选参数 | `dict` |
 | `_macos_wechat_diagnostics(...)` | macOS 微信权限诊断 | 可选参数 | `dict` |
 | `_read_recent_logs()` | 读取最近 500 行日志 | 无 | `dict` |
-| `_run_step1_extraction()` | 后台执行密钥提取 | 无 | `None` |
+| `_run_step1_extraction()` | 后台执行密钥提取；DLL 缺失写 `phase="error"` 并透出原因 | 无 | `None` |
 | `_write_onboarding_to_env(env_path)` | 写入引导数据到 .env | `env_path` | `None` |
+| `_game_config_from_raw(raw)` | env 键值对 → UI 侧玩法配置(模块级) | `raw: dict[str,str]` | `dict` |
+| `_game_updates_from_config(config)` | UI 配置 dict → `.env` 行(模块级) | `config: dict` | `dict[str, str \| None]` |
+| `_resolve_db_path()` | 从 .env 解析 messages.db 路径(模块级) | 无 | `str` |
+| `_UIHandler._query_params()` | 解析 `self.path` 的 query string | 无 | `dict[str,str]` |
 
-### 2.34 前端组件 (`ui/src/components/`)
+### 2.35 前端组件 (`ui/src/components/`)
 
 | 文件 | 组件名 | 描述 |
 |---|---|---|
@@ -637,6 +807,11 @@ todo_delete_keywords: list[str] = [
 | `Dashboard.jsx` | `LiveIndicator` | 实时状态指示灯(脉冲动画) |
 | `Dashboard.jsx` | `KeyExtractionBanner` | 内联密钥提取横幅(单文件内组件) |
 | `LogViewer.jsx` | `LogViewer` | 实时日志查看器(过滤/搜索/高亮) |
+| `TodoManager.jsx` | `TodoManager` | 群聊待办管理(配置+列表+操作) |
+| `GamePanel.jsx` | `GamePanel` | 修仙玩法面板(配置+排行榜+动态+角色管理) |
+| `GamePanel.jsx` | `StatCard` | 概览统计卡片(单文件内组件) |
+| `GamePanel.jsx` | `RealmBadge` | 境界徽章(单文件内组件) |
+| `GamePanel.jsx` | `ProgressBar` | 修为进度条(单文件内组件) |
 
 ---
 
@@ -685,6 +860,7 @@ desktop.py  (桌面入口)
                   │     ├── wcdb_client.py      → WcdbNativeClient (ctypes DLL)
                   │     └── window_controller.py → WeChatWindowController (键盘操控)
                   ├── extract_key.py       → 密钥提取 (wx_key.dll Hook)
+                  │     └── native_dlls.py      → 原生 DLL 定位/校验/报错 (共用)
                   ├── keyboard.py          → 键盘模拟 (keybd_event)
                   ├── helpers.py           → 去重/类型映射
                   ├── mac_ui_backend.py     → MacUIBackend (macOS 界面自动化)
@@ -714,7 +890,10 @@ Bot.run()
   │     ├── StickyMentionTracker()       [src/proactive/sticky.py]
   │     ├── MemoryConsolidator()         [src/memory/consolidator.py]
   │     ├── TodoStore()                  [src/todo/store.py]
-  │     └── TodoHandler()                [src/todo/handler.py]
+  │     ├── TodoHandler()                [src/todo/handler.py]
+  │     └── GameHandler()                [src/game/handler.py]   (仅 GAME_ENABLED=true)
+  │           ├── GameStore()             [src/game/store.py]
+  │           └── FlavorGenerator()       [src/game/flavor.py] → summarizer._call_chat_api()
   ├── HealthMonitor()                    [src/bot.py]
   └── WcdbBackend / MacUIBackend / MacHybridBackend  [src/wechat/]
 ```
@@ -737,6 +916,9 @@ _API 请求 → _UIHandler._handle_request()
   ├── /api/voice/model-status → 检查 HuggingFace 缓存
   ├── /api/voice/download-model → snapshot_download()
   ├── /api/lots           → load_lots_config() / save_lots_config()
+  ├── /api/game/overview  → GameStore.list_ranking() / list_events() / get_overview()
+  ├── /api/game/characters → GameStore.list_characters()
+  ├── /api/game/action    → GameStore.reset_character() / grant_stones() / set_realm()
   ├── /api/onboarding/*   → 引导流程状态管理
   ├── /api/logs           → _read_recent_logs()
   ├── /api/status         → _status.snapshot()
@@ -809,6 +991,12 @@ AbstractSummarizer (base.py)
          │
 6. MessageRouter.handle(msg)
          │
+         ├─→ [先去重+持久化, 然后玩法被动积累]
+         │      └─ GameHandler.record_activity(msg)   (仅 GAME_ENABLED)
+         │            ├─ _maybe_spawn_encounter() — 懒触发, 不新起线程
+         │            ├─ engine.is_valid_chat_content() — 防刷
+         │            └─ 返回机缘播报文本 → 作为 passive_reply 发出
+         │
          ├─→ [@mention 路径]
          │      │
          │      ├─ trigger check → TriggerDetector.is_trigger()
@@ -828,7 +1016,13 @@ AbstractSummarizer (base.py)
          │      ├─ admin command → AdminCommandHandler.handle()
          │      ├─ todo command → TodoHandler.handle()
          │      ├─ feishu export → FeishuExportService.export_recent_chat()
-         │      └─ fun (抽签) → draw_lots()
+         │      ├─ fun (抽签) → draw_lots()
+         │      └─ 修仙玩法 → GameHandler.handle()
+         │            ├─ _cmd_cultivate() / _do_breakthrough()
+         │            ├─ _cmd_profile() / _cmd_ranking()
+         │            ├─ _cmd_alchemy() / _cmd_take_pill()
+         │            ├─ _cmd_duel() → engine.duel_allowed()
+         │            └─ _claim_encounter() → GameStore.claim_encounter() (原子)
          │
          └─→ [Proactive 路径]
                 │
@@ -869,6 +1063,8 @@ AbstractSummarizer (base.py)
 | `wcdb_backend.py` | `src/wechat/wcdb_backend.py` | 后端主控, 消息轮询与标准化 |
 | `wcdb_client.py` | `src/wechat/wcdb_client.py` | 底层 DLL 封装, 加密数据库读写 |
 | `extract_key.py` | `src/wechat/extract_key.py` | 密钥提取 (wx_key.dll Hook) |
+| `native_dlls.py` | `src/wechat/native_dlls.py` | 原生 DLL 定位/校验/报错 (extract_key + wcdb_client 共用) |
+| `fetch_native.py` | `tools/fetch_native.py` | 从发行版 webot.exe 提取 native/windows/*.dll |
 | `base.py` | `src/wechat/base.py` | 抽象基类 (接口定义) |
 | `helpers.py` | `src/wechat/helpers.py` | 去重集合 (DedupSet) |
 
@@ -1108,6 +1304,9 @@ MessageRouter.handle(msg) → [无 @mention]
 | `POST` | `/api/sandbox/test` | AI 沙盒测试 (不发送) | 无 |
 | `GET` | `/api/lots` | 获取抽签配置 | 无 |
 | `POST` | `/api/lots` | 保存抽签配置 | 无 |
+| `GET` | `/api/game/overview?chat_id=` | 修仙玩法汇总+修为榜+事件流 | 无 |
+| `GET` | `/api/game/characters?chat_id=&search=` | 修仙角色列表 | 无 |
+| `POST` | `/api/game/action` | 修仙角色管理(reset/grant_stones/set_realm) | 无 |
 | `GET` | `/api/browse?path=` | 浏览文件系统目录 | 无 |
 | `POST` | `/api/wechat-data-dir/detect` | 检测自定义微信数据目录 | 无 |
 | `GET` | `/api/onboarding/status` | 引导流程状态 | 无 |
@@ -1536,6 +1735,150 @@ MacHybridBackend
 
 ---
 
+### 功能L: 修仙玩法
+
+群聊修仙小游戏：群友正常聊天自动积累修为，@机器人可打坐/突破/渡劫，争夺天降机缘，形成群内排行榜。
+
+#### 涉及文件
+
+| 文件 | 路径 | 角色 |
+|---|---|---|
+| `realms.py` | `src/game/realms.py` | 纯数据表(境界/丹药/功法/文案模板池) |
+| `engine.py` | `src/game/engine.py` | 纯逻辑(收益/突破率/冷却/防刷/论道)，不碰 DB/IO |
+| `store.py` | `src/game/store.py` | SQLite 持久化(角色/事件/群状态) |
+| `flavor.py` | `src/game/flavor.py` | 关键节点 AI 文案 + 模板降级 |
+| `handler.py` | `src/game/handler.py` | 命令解析与分发 |
+| `GamePanel.jsx` | `ui/src/components/GamePanel.jsx` | Web 面板(配置/排行榜/动态/角色管理) |
+
+#### 调用链
+
+```
+① 被动积累（每条群消息）
+MessageRouter.handle(msg)
+  │  (去重 + insert_message 之后)
+  └── GameHandler.record_activity(msg)
+        ├── _maybe_spawn_encounter(chat_id, now)     ← 懒触发, 不新起线程
+        │     ├── GameStore.get_group_state()
+        │     ├── _group_is_active() → MessageStore.get_messages_since()
+        │     └── GameStore.spawn_encounter()
+        ├── (若为「抢机缘」) _claim_encounter() → GameStore.claim_encounter()  ← 原子
+        ├── engine.is_valid_chat_content()           ← 防刷
+        ├── engine.cooldown_remaining() / rollover_daily() / remaining_daily_exp()
+        ├── engine.passive_exp() → GameStore.save_character()
+        └── 返回机缘播报文本 → router 作为 passive_reply 发出
+
+② 主动命令（@bot）
+MessageRouter.handle(msg) → [@mention 命令链, 抽签之后]
+  └── GameHandler.handle(clean_content, chat_id, sender_id, sender_name)
+        ├── 「修炼/打坐」  → _cmd_cultivate()      → engine.active_exp()
+        ├── 「突破/冲关」  → _cmd_breakthrough()   ┐
+        ├── 「渡劫」       → _cmd_tribulation()    ┴→ _do_breakthrough()
+        │                       ├── engine.resolve_breakthrough()
+        │                       ├── FlavorGenerator.generate()   ← AI 文案, 3s 超时降级
+        │                       └── GameStore.log_event()
+        ├── 「我的」       → _cmd_profile()
+        ├── 「排行榜」     → _cmd_ranking()        → GameStore.list_ranking()
+        ├── 「炼丹」       → _cmd_alchemy()        → realms.weighted_pick()
+        ├── 「服用 X」     → _cmd_take_pill()      → engine.apply_pill()
+        ├── 「论道 X」     → _cmd_duel()           → engine.duel_allowed() / duel_stake()
+        └── 「抢机缘」     → _claim_encounter()
+
+③ Web 面板
+GamePanel.jsx → /api/game/overview   → GameStore.list_ranking()/list_events()/get_overview()
+              → /api/game/characters → GameStore.list_characters()
+              → /api/game/action     → GameStore.reset_character()/grant_stones()/set_realm()
+```
+
+#### 境界体系
+
+9 大境界 × 初期/中期/后期 = 27 阶，之后为「仙人」（满级）：
+
+```
+炼气(60) → 筑基(180) → 金丹(480) → 元婴(1200) → 化神(2800)
+→ 炼虚(6000) → 合体(12000) → 大乘(24000) → 渡劫(48000) → 仙人
+```
+括号为该境界**每阶**基础所需修为，实际值 `base * (1 + 0.35 * stage_index)`。
+
+#### 数据库表结构
+
+```sql
+CREATE TABLE IF NOT EXISTS game_characters (
+    chat_id        TEXT    NOT NULL,
+    user_id        TEXT    NOT NULL,
+    user_name      TEXT    NOT NULL DEFAULT '',
+    realm_index    INTEGER NOT NULL DEFAULT 0,   -- 0..26 阶位, 27 = 仙人
+    exp            INTEGER NOT NULL DEFAULT 0,   -- 当前阶内修为
+    total_exp      INTEGER NOT NULL DEFAULT 0,   -- 累计修为(排行榜用)
+    spirit_stones  INTEGER NOT NULL DEFAULT 0,
+    technique      TEXT    NOT NULL DEFAULT '',  -- 已习得功法(仅 1 本)
+    pills          TEXT    NOT NULL DEFAULT '{}',-- JSON {"回气丹": 2}
+    pending_bonus  REAL    NOT NULL DEFAULT 0,   -- 丹药提供的一次性突破加成
+    fail_streak    INTEGER NOT NULL DEFAULT 0,   -- 连续失败次数(道心补偿)
+    last_chat_ts   REAL    NOT NULL DEFAULT 0,   -- 被动收益冷却
+    last_action_ts REAL    NOT NULL DEFAULT 0,   -- 主动命令冷却
+    daily_key      TEXT    NOT NULL DEFAULT '',  -- 'YYYY-MM-DD', 变化即重置
+    daily_exp      INTEGER NOT NULL DEFAULT 0,
+    daily_actions  INTEGER NOT NULL DEFAULT 0,
+    alchemy_used   INTEGER NOT NULL DEFAULT 0,   -- 当日炼丹次数
+    duel_used      INTEGER NOT NULL DEFAULT 0,   -- 当日论道次数
+    duel_targets   TEXT    NOT NULL DEFAULT '[]',-- JSON 当日已论道过的 user_id
+    bt_attempts    INTEGER NOT NULL DEFAULT 0,
+    bt_fails       INTEGER NOT NULL DEFAULT 0,
+    created_at     REAL    NOT NULL DEFAULT (unixepoch()),
+    updated_at     REAL    NOT NULL DEFAULT (unixepoch()),
+    PRIMARY KEY (chat_id, user_id)
+);
+CREATE INDEX IF NOT EXISTS idx_game_char_rank
+    ON game_characters(chat_id, realm_index DESC, total_exp DESC);
+
+CREATE TABLE IF NOT EXISTS game_events (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    chat_id    TEXT NOT NULL,
+    kind       TEXT NOT NULL,       -- breakthrough_*|tribulation_*|encounter|duel
+    actor_id   TEXT NOT NULL DEFAULT '',
+    actor_name TEXT NOT NULL DEFAULT '',
+    summary    TEXT NOT NULL DEFAULT '',
+    detail     TEXT NOT NULL DEFAULT '{}',
+    created_at REAL NOT NULL DEFAULT (unixepoch())
+);
+CREATE INDEX IF NOT EXISTS idx_game_events_chat
+    ON game_events(chat_id, created_at DESC);
+
+-- 每群状态: 机缘刷新节流 + 当前活跃机缘(全群共享一条)
+CREATE TABLE IF NOT EXISTS game_group_state (
+    chat_id              TEXT PRIMARY KEY,
+    last_encounter_at    REAL NOT NULL DEFAULT 0,
+    active_expires_at    REAL NOT NULL DEFAULT 0,
+    active_reward_kind   TEXT NOT NULL DEFAULT '',
+    active_reward_amount INTEGER NOT NULL DEFAULT 0
+);
+```
+
+#### 关键参数
+
+| 参数 | 默认值 | 说明 |
+|---|---|---|
+| `game_enabled` | `False` | 玩法主开关（默认关闭，被动收益挂在每条群消息上） |
+| `game_groups` | `["*"]` | 启用玩法的群组（`"*"`=全部） |
+| `game_chat_exp` | `2` | 每条有效发言的基础修为 |
+| `game_chat_cooldown_sec` | `30` | 被动收益冷却（秒） |
+| `game_daily_exp_cap` | `200` | 每日被动修为上限 |
+| `game_action_cooldown_sec` | `300` | 「修炼」等主动命令冷却（秒） |
+| `game_exp_multiplier` | `1.0` | 全局收益倍率（调节奏用） |
+| `game_encounter_interval_min` | `45` | 天降机缘刷新间隔（分钟，0=关闭） |
+| `game_ai_flavor_enabled` | `True` | 突破/渡劫用 AI 生成剧情文案 |
+
+#### 关键机制说明
+
+- **被动收益**：每条有效消息 `2 * (1 + realm_index * 0.15) * 倍率`。防刷要求消息 ≥4 字、含 ≥2 个实义字符、不与本人上一条完全相同。
+- **突破成功率**：`clamp(0.90 - realm_index * 0.025 + 功法 + 丹药 + 连续失败补偿, 0.15, 0.98)`。失败扣当前修为 30%，不跌境界。
+- **渡劫**：渡劫后期 → 仙人，基础成功率 `0.35`。失败跌落 1 个境界（3 阶），修为按**新境界**量级折算 50%。
+- **天降机缘**：每群每 `game_encounter_interval_min` 分钟最多 1 次，懒触发（收到消息时检查），要求群近 10 分钟 ≥5 条消息。窗口 5 分钟，靠 `GameStore.claim_encounter()` 的 `BEGIN IMMEDIATE` 事务保证先到先得。
+- **AI 文案**：`FlavorGenerator` 通过 `summarizer._call_chat_api()` 调 AI，`ThreadPoolExecutor` + 3 秒超时；超时/异常一律降级到 `realms.TEMPLATES` 模板池，绝不阻塞群聊。
+- **`GameStore._connect()` 返回 `contextlib.closing`**：`sqlite3.connect()` 作上下文管理器只 commit 不 close，在 Windows 上会一直锁住 `-wal`/`-shm` 文件。所有写操作因此都显式 `commit()`。
+
+---
+
 ## 5. 配置文件和环境变量
 
 ### 5.1 `.env` 文件完整配置项
@@ -1635,6 +1978,17 @@ FEISHU_EXPORT_TRIGGER_KEYWORDS=同步到飞书,导出到飞书,写到飞书,沉�
 # === 引导流程 ===
 ONBOARDING_DONE=false
 WCDB_KEY=
+
+# === 修仙玩法 ===
+GAME_ENABLED=false                            # 默认关闭, 开启前请确认群友接受
+GAME_GROUPS=*                                 # 启用玩法的群(逗号分隔, "*"=全部)
+GAME_CHAT_EXP=2                               # 每条有效发言的基础修为(1-100)
+GAME_CHAT_COOLDOWN_SEC=30                     # 被动收益冷却(秒)
+GAME_DAILY_EXP_CAP=200                        # 每日被动修为上限
+GAME_ACTION_COOLDOWN_SEC=300                  # 「修炼」等主动命令冷却(秒)
+GAME_EXP_MULTIPLIER=1.0                       # 全局收益倍率(0.1-20.0)
+GAME_ENCOUNTER_INTERVAL_MIN=45                # 天降机缘刷新间隔(分钟, 0=关闭)
+GAME_AI_FLAVOR_ENABLED=true                   # 突破/渡劫用 AI 生成剧情文案
 ```
 
 ### 5.2 `build.spec` 打包配置 (Windows)
@@ -1654,7 +2008,14 @@ WCDB_KEY=
 # 数据:
 #   - ui/dist → ui/dist (前端构建产物)
 #   - .env.example → . (示例配置)
+# hiddenimports: 每个 src.* 子模块都必须显式列出（含 src.game / src.game.realms /
+#   src.game.engine / src.game.store / src.game.flavor / src.game.handler），
+#   遗漏会导致 EXE 运行时报 ModuleNotFoundError
 # 排除: faster_whisper, ctranslate2, numpy, onnxruntime, pysilk, tkinter, matplotlib, scipy
+#
+# 注意: native/windows/ 下 6 个 DLL 被 .gitignore 排除，全新 clone 的仓库没有该目录，
+#       打包会直接以 "Unable to find ...\native\windows\wcdb_api.dll" 失败。
+#       先执行 python tools/fetch_native.py 补齐（从发行版 webot.exe 解包）。
 ```
 
 ### 5.3 `requirements.txt` 依赖说明

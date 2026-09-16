@@ -63,11 +63,17 @@ def extract_key(timeout: float = 60) -> str | None:
     import sys as _sys
     _sys.path.insert(0, str(PROJECT_ROOT))
     from src.wechat.extract_key import extract_wcdb_key
+    from src.wechat.native_dlls import NativeDllMissingError
 
     print("\n[info] Extracting database key via wx_key.dll...")
     print("       WeChat must be started during key capture.")
 
-    key = extract_wcdb_key()
+    try:
+        key = extract_wcdb_key()
+    except NativeDllMissingError as e:
+        print("\n[error] 原生 DLL 缺失，无法提取密钥：")
+        print(f"        {e}")
+        return None
     if key:
         return key
 

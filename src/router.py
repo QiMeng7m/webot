@@ -17,6 +17,8 @@ from .proactive.sticky import StickyMentionTracker
 from .memory.consolidator import MemoryConsolidator
 from .todo.store import TodoStore
 from .todo.handler import TodoHandler, format_todo_reply
+from .game.store import GameStore
+from .game.handler import GameHandler
 
 logger = logging.getLogger(__name__)
 
@@ -86,6 +88,15 @@ class MessageRouter:
             self._todo_handler = TodoHandler(
                 self._todo_store, config,
             )
+        # 修仙玩法: init store and handler if feature is enabled
+        self._game_handler: Optional[GameHandler] = None
+        if config.game_enabled:
+            self._game_handler = GameHandler(
+                GameStore(db_path=config.db_path),
+                config,
+                summarizer=summarizer,
+                message_store=store,
+            )
         # Health monitoring: count unique messages processed (post-dedup)
         self.messages_processed: int = 0
 
@@ -139,6 +150,16 @@ class MessageRouter:
                     )
             return None  # Duplicate or DB error — nothing more to do
         self.messages_processed += 1
+
+        # ── 修仙玩法: 被动积累 ────────────────────────────────────
+        # 每条有效群消息都会静默累积修为；只有当刷新了天降机缘或成功
+        # 抢占机缘时才会返回一段需要播报的文本。
+        passive_reply: Optional[str] = None
+        if self._game_handler is not None and self._is_game_group(msg["chat_id"]):
+            try:
+                passive_reply = self._game_handler.record_activity(msg)
+            except Exception:
+                logger.exception("Game passive accrual failed")
 
         # Check memory consolidation trigger (fast no-op unless threshold hit)
         self._memory.check_and_consolidate(msg["chat_id"])
@@ -236,6 +257,22 @@ class MessageRouter:
                 from .fun import draw_lots
                 reply = draw_lots(msg["sender_name"])
 
+            # ── 修仙玩法: 玩法命令 ──────────────────────────────
+            if (
+                reply is None
+                and self._game_handler is not None
+                and self._is_game_group(msg["chat_id"])
+            ):
+                try:
+                    reply = self._game_handler.handle(
+                        clean_content,
+                        msg["chat_id"],
+                        msg["sender_id"],
+                        msg["sender_name"],
+                    )
+                except Exception:
+                    logger.exception("Game command failed")
+
             if reply is None and (
                 self._config.admin_wxid
                 and msg["sender_id"] == self._config.admin_wxid
@@ -288,12 +325,20 @@ class MessageRouter:
                 except Exception:
                     logger.exception("Automatic Feishu knowledge sync failed")
 
-            # ── Proactive path (rate-based ambient participation) ─
-            should_speak, mode, reason = self._proactive.should_speak(msg)
-            if should_speak and mode is not None:
-                reply = self._handle_proactive_chat(msg, mode)
+            # 修仙玩法的事件播报（机缘刷新/抢占）优先于主动发言
+            if passive_reply:
+                reply = passive_reply
             else:
-                return None
+                # ── Proactive path (rate-based ambient participation) ─
+                should_speak, mode, reason = self._proactive.should_speak(msg)
+                if should_speak and mode is not None:
+                    reply = self._handle_proactive_chat(msg, mode)
+                else:
+                    return None
+
+        # @bot 路径下若没能生成任何回复，仍然把玩法播报发出去
+        if reply is None and passive_reply:
+            reply = passive_reply
 
         # ── Strip markdown — WeChat can't render it ──────────────
         return self._strip_markdown(reply) if reply else None
@@ -320,13 +365,20 @@ class MessageRouter:
         return self._group_names_cache or {}
 
     def _is_todo_group(self, chat_id: str) -> bool:
-        """Check if the given chat_id is in the todo allowed-groups list.
+        """Check if the given chat_id is in the todo allowed-groups list."""
+        return self._is_feature_group(chat_id, self._config.todo_groups)
+
+    def _is_game_group(self, chat_id: str) -> bool:
+        """Check if the given chat_id is in the game allowed-groups list."""
+        return self._is_feature_group(chat_id, self._config.game_groups)
+
+    def _is_feature_group(self, chat_id: str, groups: list[str]) -> bool:
+        """Check if the given chat_id is in an allowed-groups list.
 
         Uses group_names.json (persisted by WcdbBackend) to match
         configured group names against actual chat_ids and their
         display names.
         """
-        groups = self._config.todo_groups
         if not groups or groups == ["*"]:
             return True
         # Load display name mapping (chat_id → display_name)

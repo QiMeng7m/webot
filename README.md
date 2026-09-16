@@ -131,7 +131,7 @@
 
 ### Windows（推荐）
 
-1. 从 [Releases](https://github.com/cancelGuMu/webot/releases) 下载 `webot-setup.exe`，双击安装
+1. 从 [Releases](https://github.com/GuMu599/webot/releases) 下载 `webot-setup.exe`，双击安装
 2. 或者下载 `webot.exe`，免安装直接双击运行
 3. 首次打开会弹出配置向导，跟着走完就行
 
@@ -140,7 +140,7 @@
 ### macOS（实验）
 
 ```bash
-git clone https://github.com/cancelGuMu/webot.git
+git clone https://github.com/GuMu599/webot.git
 cd webot
 python3.12 -m venv .venv
 source .venv/bin/activate
@@ -154,12 +154,34 @@ python desktop_mac.py
 ### 从源码运行（Windows）
 
 ```bash
-git clone https://github.com/cancelGuMu/webot.git
+git clone https://github.com/GuMu599/webot.git
 cd webot
 pip install -r requirements.txt
 cd ui && npm install && npm run build && cd ..
+python tools/fetch_native.py    # 必须：补齐 native/windows/ 下的原生 DLL
 python desktop.py
 ```
+
+> **关于 `tools/fetch_native.py`**
+>
+> webot 依赖 6 个 Windows 原生 DLL（`wx_key.dll`、`wcdb_api.dll`、`WCDB.dll`
+> 以及三个 VC++ 运行时），它们**不在 git 仓库里**——属于第三方 / 逆向产物，
+> 不适合放进版本控制。全新 clone 的项目是没有 `native/windows/` 目录的，
+> 不补这一步会在「提取密钥」时失败，`pyinstaller build.spec` 也会直接报错。
+>
+> 这些 DLL 已内含在发行版 `webot.exe` 中，上面的脚本会自动下载发行版并解包到位。
+> 该脚本依赖 PyInstaller（打包本来也要装）：`pip install pyinstaller`。
+> 如果你本地已经有打包好的 `webot.exe`，也可以离线提取：
+>
+> ```bash
+> python tools/fetch_native.py --from-exe path/to/webot.exe
+> ```
+>
+> 检查是否就位：
+>
+> ```bash
+> python -m src.wechat.native_dlls
+> ```
 
 ---
 
@@ -187,6 +209,16 @@ DeepSeek（推荐，极低价格）和 Claude。普通群一天用下来不到�
 
 **支持多群吗？**
 支持，默认监控所有群，也可以指定。
+
+**提取密钥时提示「缺少原生 DLL」/ 日志出现 `wx_key.dll not found`？**
+说明 `native/windows/` 下的原生 DLL 缺失（从源码跑最常见）。执行：
+
+```bash
+python tools/fetch_native.py
+```
+
+**`pyinstaller build.spec` 报 `Unable to find ...\native\windows\*.dll`？**
+同上，先跑 `python tools/fetch_native.py` 补齐二进制再打包。
 
 ---
 

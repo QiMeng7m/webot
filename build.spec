@@ -75,6 +75,8 @@ a = Analysis(
         'src.web', 'src.web.server',
         'src.router', 'src.welcome',
         'src.todo', 'src.todo.store', 'src.todo.handler',
+        'src.game', 'src.game.realms', 'src.game.engine',
+        'src.game.store', 'src.game.flavor', 'src.game.handler',
         'src.nickname', 'src.admin', 'src.fun',
         'src.utils', 'src.utils.logging_config',
         'dotenv', 'anthropic', 'openai', 'pydantic',

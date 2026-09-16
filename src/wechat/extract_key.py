@@ -12,7 +12,8 @@ import logging
 import os
 import sys
 import time
-from pathlib import Path
+
+from .native_dlls import NativeDllMissingError, ensure_dll, verify_loadable
 
 logger = logging.getLogger(__name__)
 
@@ -52,48 +53,9 @@ def _find_wechat_pid():
     return None
 
 
-def _find_wx_key_dll():
-    """Locate wx_key.dll: bundled native/windows/ first, then fallbacks."""
-    import sys as _s
-    candidates = [
-        Path(__file__).resolve().parent.parent.parent / "native" / "windows" / "wx_key.dll",
-    ]
-    if getattr(_s, "frozen", False):
-        candidates.insert(0, Path(_s._MEIPASS) / "native" / "windows" / "wx_key.dll")
-        candidates.insert(1, Path(_s.executable).resolve().parent / "native" / "windows" / "wx_key.dll")
-    for c in candidates:
-        if c.exists():
-            return str(c)
-    return None
-
-
 def _verify_dll_loadable(dll_path: str) -> str | None:
     """Try to load wx_key.dll and return None if OK, or an error string."""
-    dll_dir = os.path.dirname(dll_path)
-    if dll_dir:
-        try:
-            os.add_dll_directory(dll_dir)
-        except AttributeError:
-            k32 = ct.WinDLL("kernel32", use_last_error=True)
-            k32.SetDllDirectoryW(dll_dir)
-    try:
-        ct.WinDLL(dll_path)
-        return None  # OK
-    except OSError as e:
-        err_code = ct.get_last_error()
-        if err_code == 126:
-            return (
-                f"wx_key.dll 加载失败：缺少依赖库（错误码 126）。"
-                f"请确认 native/windows/ 目录下的 VC++ 运行时 DLL 完整。\n"
-                f"详情: {e}"
-            )
-        elif err_code == 193:
-            return (
-                f"wx_key.dll 加载失败：不是有效的 Win32/Win64 程序（错误码 193）。"
-                f"请确认 DLL 架构与当前 Python 一致。\n详情: {e}"
-            )
-        else:
-            return f"wx_key.dll 加载失败（错误码 {err_code}）: {e}"
+    return verify_loadable(dll_path)
 
 
 def _log_console(msg):
@@ -129,10 +91,10 @@ def extract_wcdb_key(require_restart: bool = True,
             except Exception:
                 pass
 
-    dll_path = _find_wx_key_dll()
-    if not dll_path:
-        logger.error("wx_key.dll not found")
-        return None
+    # A missing wx_key.dll is a hard setup error, not a failed attempt —
+    # raise so callers surface the real reason instead of reporting a
+    # bogus "timed out, make sure WeChat is logged in".
+    dll_path = str(ensure_dll("wx_key.dll"))
 
     # Pre-flight: verify the DLL actually loads before asking user
     # to restart WeChat.  Missing VC++ runtimes or architecture
@@ -141,7 +103,7 @@ def extract_wcdb_key(require_restart: bool = True,
     dll_err = _verify_dll_loadable(dll_path)
     if dll_err:
         logger.error(dll_err)
-        raise RuntimeError(dll_err)
+        raise NativeDllMissingError(dll_err)
 
     pid = _find_wechat_pid()
 
@@ -264,8 +226,11 @@ def _hook_and_poll(pid: int, dll_path: str, timeout=180):
 
     except OSError as e:
         # DLL load failures — missing dependencies, corrupted file, etc.
-        logger.error("无法加载 wx_key.dll: %s（错误码: %d）", e, ct.get_last_error())
-        return None
+        # Surface these as a setup error rather than returning None, which
+        # callers would otherwise report as a key-capture timeout.
+        detail = verify_loadable(dll_path) or f"无法加载 wx_key.dll: {e}"
+        logger.error(detail)
+        raise NativeDllMissingError(detail) from e
     except Exception as e:
         logger.error("Hook 失败: %s", e, exc_info=True)
         try:
@@ -293,7 +258,11 @@ def decrypt_wcdb_key(aes_hex):
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO, format="%(message)s")
-    k = extract_wcdb_key()
+    try:
+        k = extract_wcdb_key()
+    except NativeDllMissingError as e:
+        print(f"ERROR: {e}", file=sys.stderr)
+        sys.exit(1)
     if k:
         print(k)
     else:

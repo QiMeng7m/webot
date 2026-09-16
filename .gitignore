@@ -75,7 +75,10 @@ data/group_members.json
 # WeChat runtime binaries (not tracked in git)
 src/wechat/bin/
 
-# Native DLL binaries (tracked via releases)
+# Native DLL binaries — third-party / reverse-engineered artifacts, not
+# redistributed through git (they are embedded in the released webot.exe).
+# A fresh checkout has no native/windows/ at all; restore it with:
+#   python tools/fetch_native.py
 native/windows/*.dll
 
 # Ghidra reverse engineering

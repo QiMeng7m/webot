@@ -24,6 +24,7 @@ from urllib.parse import unquote
 # make the name a local — so it must be imported at module level too,
 # otherwise the first branch that references it raises UnboundLocalError.
 from src.config import _decode_wechat_groups
+from src.wechat.native_dlls import NativeDllMissingError
 
 logger = logging.getLogger(__name__)
 
@@ -214,6 +215,72 @@ def _todo_config_from_raw(raw: dict[str, str]) -> dict:
             raw.get("TODO_DELETE_KEYWORDS", _DEFAULT_TODO_DELETE_KEYWORDS),
         ),
     }
+
+
+def _game_config_from_raw(raw: dict[str, str]) -> dict:
+    """Return UI-facing cultivation-game config from env key/value pairs."""
+    return {
+        "game_enabled": _bool_env(raw.get("GAME_ENABLED", "false"), False),
+        "game_groups": _split_csv(raw.get("GAME_GROUPS", "*")),
+        "game_chat_exp": _int_env(raw.get("GAME_CHAT_EXP", "2"), 2),
+        "game_chat_cooldown_sec": _int_env(
+            raw.get("GAME_CHAT_COOLDOWN_SEC", "30"), 30,
+        ),
+        "game_daily_exp_cap": _int_env(raw.get("GAME_DAILY_EXP_CAP", "200"), 200),
+        "game_action_cooldown_sec": _int_env(
+            raw.get("GAME_ACTION_COOLDOWN_SEC", "300"), 300,
+        ),
+        "game_exp_multiplier": _float_env(
+            raw.get("GAME_EXP_MULTIPLIER", "1.0"), 1.0,
+        ),
+        "game_encounter_interval_min": _int_env(
+            raw.get("GAME_ENCOUNTER_INTERVAL_MIN", "45"), 45,
+        ),
+        "game_ai_flavor_enabled": _bool_env(
+            raw.get("GAME_AI_FLAVOR_ENABLED", "true"), True,
+        ),
+    }
+
+
+def _game_updates_from_config(config: dict) -> dict[str, str | None]:
+    """Convert cultivation-game config dict to .env lines."""
+    groups = config.get("game_groups")
+    return {
+        "GAME_ENABLED": str(config.get("game_enabled", False)).lower(),
+        "GAME_GROUPS": ",".join(groups) if groups else "*",
+        "GAME_CHAT_EXP": str(config.get("game_chat_exp", 2)),
+        "GAME_CHAT_COOLDOWN_SEC": str(config.get("game_chat_cooldown_sec", 30)),
+        "GAME_DAILY_EXP_CAP": str(config.get("game_daily_exp_cap", 200)),
+        "GAME_ACTION_COOLDOWN_SEC": str(config.get("game_action_cooldown_sec", 300)),
+        "GAME_EXP_MULTIPLIER": str(config.get("game_exp_multiplier", 1.0)),
+        "GAME_ENCOUNTER_INTERVAL_MIN": str(
+            config.get("game_encounter_interval_min", 45)
+        ),
+        "GAME_AI_FLAVOR_ENABLED": str(
+            config.get("game_ai_flavor_enabled", True)
+        ).lower(),
+    }
+
+
+def _resolve_db_path() -> str:
+    """Resolve the messages.db path from .env (falls back to the default).
+
+    ``/api/todos``, ``/api/todos/counts`` and the ``/api/game/*`` endpoints all
+    need this; keeping it in one place avoids the three copies drifting apart.
+    """
+    db_path = "data/messages.db"
+    try:
+        from src.config import find_env_file
+        env_path = find_env_file()
+        if env_path and env_path.exists():
+            for line in env_path.read_text(encoding="utf-8").splitlines():
+                stripped = line.strip()
+                if stripped.startswith("DB_PATH="):
+                    db_path = stripped.split("=", 1)[1].strip() or db_path
+                    break
+    except OSError:
+        logger.warning("Could not read DB_PATH from .env; using %s", db_path)
+    return db_path
 
 
 def _todo_updates_from_config(config: dict) -> dict[str, str | None]:
@@ -452,6 +519,15 @@ def _run_step1_extraction():
                 _step1_state["phase"] = "timeout"
                 _step1_state["message"] = "密钥提取超时，请确保微信已登录并重试"
                 _step1_state["running"] = False
+
+    except NativeDllMissingError as e:
+        # Expected setup problem (native/windows/*.dll not installed) —
+        # report the remedy without a stack trace.
+        logger.error("Step1 blocked: %s", e)
+        with _step1_lock:
+            _step1_state["phase"] = "error"
+            _step1_state["message"] = str(e)
+            _step1_state["running"] = False
 
     except Exception as e:
         logger.exception("Step1 extraction failed")
@@ -1039,6 +1115,7 @@ class _UIHandler(SimpleHTTPRequestHandler):
                          "/api/sandbox/test",
                          "/api/lots",
                          "/api/todos/action",
+                         "/api/game/action",
                          "/api/voice/download-model",
                          "/api/wechat-data-dir/detect"):
             self.do_GET()
@@ -1150,6 +1227,7 @@ class _UIHandler(SimpleHTTPRequestHandler):
             }
             config_data.update(_feishu_config_from_raw(raw))
             config_data.update(_todo_config_from_raw(raw))
+            config_data.update(_game_config_from_raw(raw))
             self.send_json({
                 "ok": True,
                 "config": config_data,
@@ -1203,6 +1281,7 @@ class _UIHandler(SimpleHTTPRequestHandler):
                     "wechat_data_dir": raw.get("WECHAT_DATA_DIR", ""),
                 }
                 export_data.update(_feishu_config_from_raw(raw))
+                export_data.update(_game_config_from_raw(raw))
                 filename = f"webot-config-{_dt_date.today().isoformat()}.json"
                 body = json.dumps(export_data, ensure_ascii=False, indent=2).encode("utf-8")
                 self.send_response(200)
@@ -1267,6 +1346,7 @@ class _UIHandler(SimpleHTTPRequestHandler):
                 }
                 updates.update(_feishu_updates_from_config(config))
                 updates.update(_todo_updates_from_config(config))
+                updates.update(_game_updates_from_config(config))
                 # ── Safety: never overwrite real secrets with masked values.
                 #     load-config returns masked keys (e.g. "sk-r***t-k"); the
                 #     frontend sends them back unchanged.  Writing a masked
@@ -1364,6 +1444,7 @@ class _UIHandler(SimpleHTTPRequestHandler):
                     "VOICE_LOCAL_MODEL": config.get("voice_local_model", "small"),
                 }
                 updates.update(_feishu_updates_from_config(config))
+                updates.update(_game_updates_from_config(config))
                 new_lines = []
                 seen = set()
                 for line in lines:
@@ -1616,6 +1697,141 @@ class _UIHandler(SimpleHTTPRequestHandler):
                     self.send_json({"ok": False, "error": str(e)})
             return
 
+        # ── API: 修仙玩法 ──────────────────────────────────────────────
+        if self.path == "/api/game/overview" or self.path.startswith("/api/game/overview?"):
+            chat_id = self._query_params().get("chat_id", "")
+            try:
+                from src.game import realms as G_R
+                from src.game.engine import exp_progress
+                from src.game.store import GameStore
+                store = GameStore(_resolve_db_path())
+                ranking = store.list_ranking(chat_id, 20) if chat_id else []
+                events = store.list_events(chat_id, 30)
+                overview = store.get_overview(chat_id)
+                self.send_json({
+                    "ok": True,
+                    "chat_id": chat_id,
+                    "overview": {
+                        **overview,
+                        "max_realm_label": (
+                            G_R.realm_label(overview["max_realm"])
+                            if overview["total"] else "—"
+                        ),
+                        "events_today": store.count_events_since(
+                            time.time() - 86400, chat_id
+                        ),
+                    },
+                    "ranking": [
+                        {
+                            "user_id": c.user_id,
+                            "user_name": c.user_name,
+                            "realm_index": c.realm_index,
+                            "realm_label": G_R.realm_label(c.realm_index),
+                            "realm_name": G_R.realm_short_name(c.realm_index),
+                            "exp": c.exp,
+                            "exp_needed": G_R.exp_needed(c.realm_index),
+                            "progress": round(
+                                exp_progress(c.realm_index, c.exp), 4
+                            ),
+                            "total_exp": c.total_exp,
+                            "spirit_stones": c.spirit_stones,
+                            "technique": c.technique,
+                        }
+                        for c in ranking
+                    ],
+                    "events": [
+                        {
+                            "id": e.id,
+                            "kind": e.kind,
+                            "actor_name": e.actor_name,
+                            "summary": e.summary,
+                            "created_at": e.created_at,
+                        }
+                        for e in events
+                    ],
+                    "groups": store.get_active_chat_ids(),
+                })
+            except Exception as e:
+                logger.exception("Failed to load game overview")
+                self.send_json({"ok": False, "error": str(e)})
+            return
+
+        # ── API: 修仙玩法角色列表 ──────────────────────────────────────
+        if self.path == "/api/game/characters" or self.path.startswith("/api/game/characters?"):
+            params = self._query_params()
+            try:
+                from src.game import realms as G_R
+                from src.game.store import GameStore
+                store = GameStore(_resolve_db_path())
+                chars = store.list_characters(
+                    chat_id=params.get("chat_id", ""),
+                    search=params.get("search", ""),
+                )
+                self.send_json({
+                    "ok": True,
+                    "items": [
+                        {
+                            "chat_id": c.chat_id,
+                            "user_id": c.user_id,
+                            "user_name": c.user_name,
+                            "realm_index": c.realm_index,
+                            "realm_label": G_R.realm_label(c.realm_index),
+                            "exp": c.exp,
+                            "total_exp": c.total_exp,
+                            "spirit_stones": c.spirit_stones,
+                            "technique": c.technique,
+                            "pills": c.pills,
+                            "bt_attempts": c.bt_attempts,
+                            "bt_fails": c.bt_fails,
+                        }
+                        for c in chars
+                    ],
+                    "groups": store.get_active_chat_ids(),
+                })
+            except Exception as e:
+                logger.exception("Failed to load game characters")
+                self.send_json({"ok": False, "error": str(e)})
+            return
+
+        # ── API: 修仙玩法管理操作 ──────────────────────────────────────
+        if self.path == "/api/game/action":
+            content_len = int(self.headers.get("Content-Length", 0))
+            body = self.rfile.read(content_len) if content_len else b"{}"
+            try:
+                data = json.loads(body)
+                action = data.get("action", "")
+                chat_id = data.get("chat_id", "")
+                user_id = data.get("user_id", "")
+                if not chat_id or not user_id:
+                    self.send_json({"ok": False, "error": "缺少 chat_id 或 user_id"})
+                    return
+                from src.game import realms as G_R
+                from src.game.store import GameStore
+                store = GameStore(_resolve_db_path())
+                if action == "reset":
+                    ok = store.reset_character(chat_id, user_id)
+                elif action == "grant_stones":
+                    ok = store.grant_stones(
+                        chat_id, user_id, int(data.get("amount", 0))
+                    )
+                elif action == "set_realm":
+                    realm = max(0, min(G_R.IMMORTAL_INDEX,
+                                       int(data.get("realm_index", 0))))
+                    ok = store.set_realm(chat_id, user_id, realm)
+                else:
+                    self.send_json({"ok": False, "error": f"未知操作: {action}"})
+                    return
+                if not ok:
+                    self.send_json({"ok": False, "error": "没有找到这名修士"})
+                    return
+                self.send_json({"ok": True})
+            except (ValueError, TypeError) as e:
+                self.send_json({"ok": False, "error": f"参数无效: {e}"})
+            except Exception as e:
+                logger.exception("Game admin action failed")
+                self.send_json({"ok": False, "error": str(e)})
+            return
+
         # ── API: Todo management ───────────────────────────────────────
         if self.path == "/api/todos" or self.path.startswith("/api/todos?"):
             params = {}
@@ -1629,15 +1845,7 @@ class _UIHandler(SimpleHTTPRequestHandler):
             search = params.get("search", "")
             try:
                 from src.todo.store import TodoStore
-                from src.config import find_env_file
-                db_path = "data/messages.db"
-                env_path = find_env_file()
-                if env_path and env_path.exists():
-                    for line in env_path.read_text(encoding="utf-8").splitlines():
-                        if line.strip().startswith("DB_PATH="):
-                            db_path = line.strip().split("=", 1)[1].strip()
-                            break
-                store = TodoStore(db_path)
+                store = TodoStore(_resolve_db_path())
                 items = store.get_all(status=status, chat_id=chat_id, search=search)
                 groups = store.get_active_groups()
                 self.send_json({
@@ -1675,15 +1883,7 @@ class _UIHandler(SimpleHTTPRequestHandler):
                 chat_id = params.get("chat_id", "")
             try:
                 from src.todo.store import TodoStore
-                from src.config import find_env_file
-                db_path = "data/messages.db"
-                env_path = find_env_file()
-                if env_path and env_path.exists():
-                    for line in env_path.read_text(encoding="utf-8").splitlines():
-                        if line.strip().startswith("DB_PATH="):
-                            db_path = line.strip().split("=", 1)[1].strip()
-                            break
-                store = TodoStore(db_path)
+                store = TodoStore(_resolve_db_path())
                 counts = store.get_counts(chat_id=chat_id)
                 self.send_json({"ok": True, "counts": counts})
             except Exception as e:
@@ -1700,15 +1900,7 @@ class _UIHandler(SimpleHTTPRequestHandler):
                 chat_id = data.get("chat_id", "")
                 target = data.get("target", "")
                 from src.todo.store import TodoStore
-                from src.config import find_env_file
-                db_path = "data/messages.db"
-                env_path = find_env_file()
-                if env_path and env_path.exists():
-                    for line in env_path.read_text(encoding="utf-8").splitlines():
-                        if line.strip().startswith("DB_PATH="):
-                            db_path = line.strip().split("=", 1)[1].strip()
-                            break
-                store = TodoStore(db_path)
+                store = TodoStore(_resolve_db_path())
                 if action == "complete":
                     result = store.complete(chat_id, target)
                 elif action == "delete":
@@ -2303,6 +2495,17 @@ class _UIHandler(SimpleHTTPRequestHandler):
         self.send_header("Access-Control-Allow-Headers", "Content-Type")
         self.end_headers()
         self.wfile.write(json.dumps(data, ensure_ascii=False).encode())
+
+    def _query_params(self) -> dict:
+        """Parse the query string of ``self.path`` into a flat dict.
+
+        Repeated keys keep the first value; ``?a=1&a=2`` → ``{"a": "1"}``.
+        """
+        if "?" not in self.path:
+            return {}
+        from urllib.parse import urlparse, parse_qs
+        parsed = urlparse(self.path)
+        return {k: (v[0] if v else "") for k, v in parse_qs(parsed.query).items()}
 
 
 def _run_server(host, port):

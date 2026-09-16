@@ -327,6 +327,11 @@ class TestSidebarNavigation:
         assert "系统配置" in page_text
         assert "运行日志" in page_text
 
+    def test_sidebar_has_game_tab(self, page):
+        page.goto(BASE_URL, timeout=10000)
+        page.wait_for_timeout(1000)
+        assert "修仙玩法" in page.inner_text("body")
+
     def test_sandbox_subtab_visible(self, page):
         page.goto(BASE_URL, timeout=10000)
         page.wait_for_timeout(1000)
@@ -336,6 +341,40 @@ class TestSidebarNavigation:
             page.wait_for_timeout(500)
             page_text = page.inner_text("body")
             assert "提示词沙箱" in page_text
+
+
+class TestGamePanel:
+    """修仙玩法面板：标签可点开、内容渲染、不白屏。"""
+
+    def test_panel_opens_and_renders(self, page):
+        page.goto(BASE_URL, timeout=10000)
+        page.wait_for_timeout(1000)
+        game_btn = page.locator("button:has-text('修仙玩法')")
+        assert game_btn.count() > 0, "侧边栏缺少「修仙玩法」标签"
+        game_btn.first.click()
+        page.wait_for_timeout(1200)
+        page_text = page.inner_text("body")
+        # 配置区与数据区都应出现
+        assert "修仙玩法配置" in page_text
+        assert "修仙世界" in page_text
+
+    def test_panel_not_blank(self, page):
+        page.goto(BASE_URL, timeout=10000)
+        page.wait_for_timeout(1000)
+        page.locator("button:has-text('修仙玩法')").first.click()
+        page.wait_for_timeout(1200)
+        # 白屏时 body 内容会非常短
+        assert len(page.inner_text("body").strip()) > 80
+
+    def test_config_card_always_visible_even_when_disabled(self, page):
+        """玩法默认关闭，但配置卡片必须始终可见（否则没法开启）。"""
+        page.goto(BASE_URL, timeout=10000)
+        page.wait_for_timeout(1000)
+        page.locator("button:has-text('修仙玩法')").first.click()
+        page.wait_for_timeout(1200)
+        page_text = page.inner_text("body")
+        assert "修仙体系" in page_text
+        assert "保存配置" in page_text
 
 
 class TestConfigExportImport:

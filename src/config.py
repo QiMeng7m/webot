@@ -254,6 +254,20 @@ class BotConfig:
         "删掉", "删除", "取消", "不要了",
     ])
 
+    # === 修仙玩法 ===
+    # Master switch — 群友正常聊天自动积累修为，@bot 可打坐/突破/渡劫。
+    # 默认关闭：被动收益挂在每一条群消息上，开启前请确认群友接受。
+    game_enabled: bool = False
+    # Comma-separated group names where the game is active. "*" = all groups.
+    game_groups: list[str] = field(default_factory=lambda: ["*"])
+    game_chat_exp: int = 2                # 每条有效发言的基础修为
+    game_chat_cooldown_sec: int = 30      # 被动收益冷却(秒)
+    game_daily_exp_cap: int = 200         # 每日被动修为上限
+    game_action_cooldown_sec: int = 300   # 「修炼」等主动命令冷却(秒)
+    game_exp_multiplier: float = 1.0      # 全局收益倍率(调节整体节奏)
+    game_encounter_interval_min: int = 45 # 天降机缘刷新间隔(分钟, 0=关闭)
+    game_ai_flavor_enabled: bool = True   # 突破/渡劫用 AI 生成剧情文案
+
     # === Tuning ===
     poll_interval_sec: float = 1.0
     dedup_window_sec: int = 60
@@ -382,7 +396,6 @@ def _validate_config(kwargs: dict) -> None:
             "FEISHU_EXPORT_MODE must be one of knowledge, spreadsheet, bitable, docx, "
             f"got {feishu_export_mode}"
         )
-
     # feishu_export_window_hours
     feishu_export_window_hours = kwargs.get("feishu_export_window_hours", 8)
     if not (1 <= feishu_export_window_hours <= 168):
@@ -403,6 +416,27 @@ def _validate_config(kwargs: dict) -> None:
         errors.append(
             "FEISHU_AUTO_SYNC_COOLDOWN_SEC must be between 60 and 86400, "
             f"got {feishu_auto_sync_cooldown_sec}"
+        )
+
+    # 修仙玩法
+    game_chat_exp = kwargs.get("game_chat_exp", 2)
+    if not (1 <= game_chat_exp <= 100):
+        errors.append(
+            f"GAME_CHAT_EXP must be between 1 and 100, got {game_chat_exp}"
+        )
+
+    game_exp_multiplier = kwargs.get("game_exp_multiplier", 1.0)
+    if not (0.1 <= game_exp_multiplier <= 20.0):
+        errors.append(
+            "GAME_EXP_MULTIPLIER must be between 0.1 and 20.0, "
+            f"got {game_exp_multiplier}"
+        )
+
+    game_encounter_interval_min = kwargs.get("game_encounter_interval_min", 45)
+    if game_encounter_interval_min < 0:
+        errors.append(
+            "GAME_ENCOUNTER_INTERVAL_MIN must be >= 0 (0 disables encounters), "
+            f"got {game_encounter_interval_min}"
         )
 
     if errors:
@@ -518,6 +552,16 @@ def load_config() -> BotConfig:
         "todo_max_per_group": _safe_int(os.getenv("TODO_MAX_PER_GROUP", "50"), 50, "TODO_MAX_PER_GROUP"),
         "todo_completed_retention_days": _safe_int(os.getenv("TODO_COMPLETED_RETENTION_DAYS", "30"), 30, "TODO_COMPLETED_RETENTION_DAYS"),
         "todo_deleted_retention_days": _safe_int(os.getenv("TODO_DELETED_RETENTION_DAYS", "30"), 30, "TODO_DELETED_RETENTION_DAYS"),
+        # 修仙玩法
+        "game_enabled": os.getenv("GAME_ENABLED", "false").strip().lower() == "true",
+        "game_groups": [g.strip() for g in os.getenv("GAME_GROUPS", "*").split(",") if g.strip()],
+        "game_chat_exp": _safe_int(os.getenv("GAME_CHAT_EXP", "2"), 2, "GAME_CHAT_EXP"),
+        "game_chat_cooldown_sec": _safe_int(os.getenv("GAME_CHAT_COOLDOWN_SEC", "30"), 30, "GAME_CHAT_COOLDOWN_SEC"),
+        "game_daily_exp_cap": _safe_int(os.getenv("GAME_DAILY_EXP_CAP", "200"), 200, "GAME_DAILY_EXP_CAP"),
+        "game_action_cooldown_sec": _safe_int(os.getenv("GAME_ACTION_COOLDOWN_SEC", "300"), 300, "GAME_ACTION_COOLDOWN_SEC"),
+        "game_exp_multiplier": _safe_float(os.getenv("GAME_EXP_MULTIPLIER", "1.0"), 1.0, "GAME_EXP_MULTIPLIER"),
+        "game_encounter_interval_min": _safe_int(os.getenv("GAME_ENCOUNTER_INTERVAL_MIN", "45"), 45, "GAME_ENCOUNTER_INTERVAL_MIN"),
+        "game_ai_flavor_enabled": os.getenv("GAME_AI_FLAVOR_ENABLED", "true").strip().lower() == "true",
         "log_level": os.getenv("LOG_LEVEL", "INFO").strip(),
         "log_file": os.getenv("LOG_FILE", "data/bot.log").strip(),
         # Voice recognition
